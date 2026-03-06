@@ -2,7 +2,7 @@
 
 ## ADR-0001: Use PowerShell + built-in .NET only
 **Decision:** Implement telnet/ftp using TcpClient and FtpWebRequest.  
-**Alternatives:** NuGet telnet libs, external telnet.exe, Python.  
+**Alternatives:** NuGet telnet libs, external telnet.exe.  
 **Reason:** No dependencies; auditable; works on locked-down laptops.  
 **Consequence:** Must implement prompt matching and minimal telnet negotiation.
 

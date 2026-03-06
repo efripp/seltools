@@ -17,11 +17,11 @@
 
 ### 3) Ensure-SelAccessC (stub)
 **Acceptance:** Function exists; logs/returns structured result; prompt regex TBD.
-**Blockers:** need telnet capture
+**Blockers:** need a clean 2AC→C transcript to finalize success detection (if C is required on some units).
 
 ### 4) Invoke-SelReIp (stub → working)
 **Acceptance:** Runs flow; SET P 1 prompt handling TBD until capture.
-**Blockers:** need SET P 1 transcript
+**Blockers:** none
 
 ### 5) Invoke-SelFirmwareUpgrade (stub → working)
 **Acceptance:** FTP upload path implemented; verify reconnect + ID compare.
