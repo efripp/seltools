@@ -76,3 +76,43 @@ Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabe
         $result.Source | Should Be "desiredstate"
     }
 }
+
+Describe "Inventory parsers" {
+    It "parses ID key/value fields" {
+        $idText = @'
+"FID=SEL-751-R401-V0-Z101100-D20240308","08A3"
+"CID=1D4A","0267"
+"DEVID=SEL-751","03C7"
+'@
+        $parsed = Parse-SelIdOutput -Text $idText
+        $parsed.FID | Should Be "SEL-751-R401-V0-Z101100-D20240308"
+        $parsed.CID | Should Be "1D4A"
+        $parsed.DEVID | Should Be "SEL-751"
+    }
+
+    It "parses STA summary fields" {
+        $staText = @'
+Serial Num = 3241995707     FID = SEL-751-R401-V0-Z101100-D20240308
+CID = 1D4A                  PART NUM = 751001A1A4A0X851G10
+'@
+        $parsed = Parse-SelStaOutput -Text $staText
+        $parsed.Serial | Should Be "3241995707"
+        $parsed.FID | Should Be "SEL-751-R401-V0-Z101100-D20240308"
+        $parsed.CID | Should Be "1D4A"
+        $parsed.PARTNUM | Should Be "751001A1A4A0X851G10"
+    }
+
+    It "parses ETH network fields" {
+        $ethText = @'
+MAC: 00-30-A7-3D-6F-A9
+IP ADDRESS: 192.168.1.2
+SUBNET MASK: 255.255.255.0
+DEFAULT GATEWAY: 192.168.1.1
+'@
+        $parsed = Parse-SelEthOutput -Text $ethText
+        $parsed.MAC | Should Be "00-30-A7-3D-6F-A9"
+        $parsed.IP | Should Be "192.168.1.2"
+        $parsed.Mask | Should Be "255.255.255.0"
+        $parsed.Gateway | Should Be "192.168.1.1"
+    }
+}

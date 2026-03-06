@@ -1,0 +1,93 @@
+{
+    "serial":  "3241995707",
+    "events":  [
+                   {
+                       "timestamp":  "2026-03-05T20:40:36",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "scaffold",
+                       "note":  "Telnet collection not implemented yet."
+                   },
+                   {
+                       "timestamp":  "2026-03-05T20:40:53",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "scaffold",
+                       "note":  "Telnet collection not implemented yet."
+                   },
+                   {
+                       "timestamp":  "2026-03-05T20:41:17",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "scaffold",
+                       "note":  "Telnet collection not implemented yet."
+                   },
+                   {
+                       "timestamp":  "2026-03-05T20:41:34",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "scaffold",
+                       "note":  "Telnet collection not implemented yet."
+                   },
+                   {
+                       "timestamp":  "2026-03-05T20:43:50",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "scaffold",
+                       "note":  "Telnet collection not implemented yet."
+                   },
+                   {
+                       "timestamp":  "2026-03-05T20:46:49",
+                       "action":  "inventory",
+                       "hostIp":  "192.168.1.2",
+                       "profile":  "factory",
+                       "defaultsDefaultIp":  "192.168.1.2",
+                       "status":  "success",
+                       "identity":  {
+                                        "requestedSerial":  null,
+                                        "observedSerial":  "3241995707"
+                                    },
+                       "inventory":  {
+                                         "ID":  {
+                                                    "FID":  "SEL-751-R401-V0-Z101100-D20240308",
+                                                    "BFID":  "SLBTIND-R101-V0-Z000000-D20230609",
+                                                    "CID":  "1D4A",
+                                                    "DEVID":  "SEL-751",
+                                                    "DEVCODE":  "77",
+                                                    "PARTNO":  "751001A1A4A0X851G10",
+                                                    "CONFIG":  "111112010",
+                                                    "SPECIAL":  "21 RTLID 2.5.5",
+                                                    "iedName":  "",
+                                                    "type":  "",
+                                                    "configVersion":  "",
+                                                    "LIB61850ID":  "27A190B2"
+                                                },
+                                         "STA":  {
+                                                     "Serial":  "3241995707",
+                                                     "FID":  "SEL-751-R401-V0-Z101100-D20240308",
+                                                     "CID":  "1D4A",
+                                                     "PARTNUM":  "751001A1A4A0X851G10"
+                                                 },
+                                         "ETH":  {
+                                                     "MAC":  "00-30-A7-3D-6F-A9",
+                                                     "IP":  "192.168.1.2",
+                                                     "Mask":  "255.255.255.0",
+                                                     "Gateway":  "192.168.1.1"
+                                                 }
+                                     },
+                       "protocol":  {
+                                        "accOk":  true
+                                    }
+                   }
+               ]
+}

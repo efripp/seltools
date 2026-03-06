@@ -71,3 +71,9 @@
 **Alternatives:** Single-row defaults only.
 **Reason:** Preserve factory defaults while allowing site-specific profiles.
 **Consequence:** Defaults loader must resolve profile names and fail clearly when profile is missing.
+
+## ADR-0013: Inventory command is live-first in v0.1
+**Decision:** `inventory` executes real Telnet capture (`ID` -> `ACC` -> `STA` -> `ETH`) and persists parsed outputs; it is no longer scaffold-only.
+**Alternatives:** Keep scaffold inventory until all commands are implemented.
+**Reason:** Field validation against real SEL relays is needed early to de-risk parser and protocol assumptions.
+**Consequence:** Inventory events now include parsed protocol data and observed-state updates from live relay responses.

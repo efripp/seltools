@@ -66,3 +66,13 @@
 - `seltools.ps1 fwupgrade` exists as a stub with explicit `NotImplemented` output.
 - Commands support interactive prompts when args are missing.
 - Pester tests cover parser behavior and argument/input precedence.
+
+## Implementation status (2026-03-05)
+- Implemented:
+  - Profile-based defaults selection (`-Profile`, default `factory`)
+  - Live inventory Telnet flow (`ID`, `ACC`, `STA`, `ETH`)
+  - Parsing of ID/STA/ETH fields and persistence to:
+    - `data/devices/<serial>.json`
+    - observed columns in `data/desiredstate.csv`
+- Current next target:
+  - Implement live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.

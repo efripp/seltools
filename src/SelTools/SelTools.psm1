@@ -78,6 +78,261 @@ function ConvertTo-SelBool {
     }
 }
 
+function Remove-SelControlChars {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    if ($null -eq $Text) {
+        return ""
+    }
+
+    # Keep CR/LF/TAB for line-oriented parsing; strip remaining control chars.
+    return ($Text -replace "[\x00-\x08\x0B\x0C\x0E-\x1F]", "")
+}
+
+function Read-SelTelnetAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [byte[]]$Buffer,
+        [Parameter(Mandatory = $true)]
+        [System.Text.Encoding]$Encoding,
+        [int]$InitialWaitMs = 300
+    )
+
+    Start-Sleep -Milliseconds $InitialWaitMs
+    $sb = New-Object System.Text.StringBuilder
+
+    while ($Stream.DataAvailable) {
+        $read = $Stream.Read($Buffer, 0, $Buffer.Length)
+        if ($read -le 0) {
+            break
+        }
+        [void]$sb.Append($Encoding.GetString($Buffer, 0, $read))
+        Start-Sleep -Milliseconds 40
+    }
+
+    return (Remove-SelControlChars -Text $sb.ToString())
+}
+
+function Read-SelTelnetUntil {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [byte[]]$Buffer,
+        [Parameter(Mandatory = $true)]
+        [System.Text.Encoding]$Encoding,
+        [Parameter(Mandatory = $true)]
+        [string]$Pattern,
+        [int]$TimeoutMs = 6000
+    )
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $sb = New-Object System.Text.StringBuilder
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        while ($Stream.DataAvailable) {
+            $read = $Stream.Read($Buffer, 0, $Buffer.Length)
+            if ($read -le 0) {
+                break
+            }
+            [void]$sb.Append($Encoding.GetString($Buffer, 0, $read))
+            Start-Sleep -Milliseconds 30
+        }
+
+        $clean = Remove-SelControlChars -Text $sb.ToString()
+        if ($clean -match $Pattern) {
+            return $clean
+        }
+
+        Start-Sleep -Milliseconds 80
+    }
+
+    return (Remove-SelControlChars -Text $sb.ToString())
+}
+
+function Send-SelTelnetLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [System.Text.Encoding]$Encoding,
+        [AllowNull()]
+        [string]$Text
+    )
+
+    if ($null -eq $Text) {
+        $Text = ""
+    }
+
+    $bytes = $Encoding.GetBytes($Text + "`r`n")
+    $Stream.Write($bytes, 0, $bytes.Length)
+    $Stream.Flush()
+}
+
+function Get-SelFirmwareLabelFromFid {
+    param(
+        [AllowNull()]
+        [string]$Fid
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Fid)) {
+        return ""
+    }
+
+    if ($Fid -match "^([^-]+-[^-]+-[^-]+)") {
+        return $Matches[1]
+    }
+
+    return $Fid
+}
+
+function Parse-SelIdOutput {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    $result = [ordered]@{}
+    $clean = Remove-SelControlChars -Text $Text
+    $rx = [regex]'"([^=]+)=([^"]*)","[^"]*"'
+    $matches = $rx.Matches($clean)
+    foreach ($m in $matches) {
+        $key = $m.Groups[1].Value.Trim()
+        $value = $m.Groups[2].Value.Trim()
+        if ($key) {
+            $result[$key] = $value
+        }
+    }
+    return [pscustomobject]$result
+}
+
+function Parse-SelStaOutput {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    $clean = Remove-SelControlChars -Text $Text
+    $serial = ""
+    $fid = ""
+    $cid = ""
+    $partNum = ""
+
+    if ($clean -match "Serial Num\s*=\s*(\d+)") { $serial = $Matches[1] }
+    if ($clean -match "FID\s*=\s*([A-Za-z0-9\-_]+)") { $fid = $Matches[1] }
+    if ($clean -match "CID\s*=\s*([A-Za-z0-9]+)") { $cid = $Matches[1] }
+    if ($clean -match "PART NUM\s*=\s*([A-Za-z0-9]+)") { $partNum = $Matches[1] }
+
+    return [pscustomobject]@{
+        Serial = $serial
+        FID = $fid
+        CID = $cid
+        PARTNUM = $partNum
+    }
+}
+
+function Parse-SelEthOutput {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    $clean = Remove-SelControlChars -Text $Text
+    $mac = ""
+    $ip = ""
+    $mask = ""
+    $gateway = ""
+
+    if ($clean -match "MAC:\s*([0-9A-Fa-f\-]+)") { $mac = $Matches[1].ToUpperInvariant() }
+    if ($clean -match "IP ADDRESS:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $ip = $Matches[1] }
+    if ($clean -match "SUBNET MASK:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $mask = $Matches[1] }
+    if ($clean -match "DEFAULT GATEWAY:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $gateway = $Matches[1] }
+
+    return [pscustomobject]@{
+        MAC = $mac
+        IP = $ip
+        Mask = $mask
+        Gateway = $gateway
+    }
+}
+
+function Invoke-SelTelnetInventoryCapture {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [AllowNull()]
+        [string]$AccPassword
+    )
+
+    $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
+    $client = New-Object System.Net.Sockets.TcpClient($HostIp, 23)
+    $stream = $client.GetStream()
+    $enc = [System.Text.Encoding]::ASCII
+    $buf = New-Object byte[] 16384
+
+    try {
+        $banner = Read-SelTelnetAvailable -Stream $stream -Buffer $buf -Encoding $enc -InitialWaitMs 500
+        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text ""
+        $prompt = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+
+        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ID"
+        $idOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+
+        $accOut = ""
+        $accOk = $false
+        $staOut = ""
+        $ethOut = ""
+
+        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ACC"
+        $accPrompt = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern "Password:|Invalid Access Level|Command Unavailable|$promptPattern"
+
+        if ($accPrompt -match "Password:") {
+            if (-not [string]::IsNullOrWhiteSpace($AccPassword)) {
+                Send-SelTelnetLine -Stream $stream -Encoding $enc -Text $AccPassword
+                $accResult = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+                $accOut = $accPrompt + "`n" + $accResult
+                if ($accResult -match "(?m)^\s*=>\s*$" -or $accResult -match "Level 1") {
+                    $accOk = $true
+                }
+            }
+            else {
+                $accOut = $accPrompt
+            }
+        }
+        else {
+            $accOut = $accPrompt
+            if ($accPrompt -match "(?m)^\s*=>\s*$") {
+                $accOk = $true
+            }
+        }
+
+        if ($accOk) {
+            Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "STA"
+            $staOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+            Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ETH"
+            $ethOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+        }
+
+        return [pscustomobject]@{
+            Banner = $banner
+            Prompt = $prompt
+            ID = $idOut
+            ACC = $accOut
+            AccOk = $accOk
+            STA = $staOut
+            ETH = $ethOut
+        }
+    }
+    finally {
+        try { $stream.Close() } catch {}
+        try { $client.Close() } catch {}
+    }
+}
+
 function Test-SelDesiredStateRowActive {
     param(
         [Parameter(Mandatory = $true)]
@@ -224,7 +479,27 @@ function Update-SelDesiredStateObserved {
     $existing.LastAction = "inventory"
     $existing.LastResult = "success"
 
-    $rows | Export-Csv -Path $DesiredStatePath -NoTypeInformation
+    $tempPath = $DesiredStatePath + ".tmp"
+    $lastError = $null
+    for ($i = 0; $i -lt 6; $i++) {
+        try {
+            $rows | Export-Csv -Path $tempPath -NoTypeInformation -ErrorAction Stop
+            if (Test-Path $DesiredStatePath) {
+                Remove-Item -Path $DesiredStatePath -Force -ErrorAction Stop
+            }
+            Move-Item -Path $tempPath -Destination $DesiredStatePath -ErrorAction Stop
+            $lastError = $null
+            break
+        }
+        catch {
+            $lastError = $_
+            Start-Sleep -Milliseconds (200 * ($i + 1))
+        }
+    }
+
+    if ($lastError) {
+        throw ("Failed to write desiredstate.csv after retries: {0}" -f $lastError.Exception.Message)
+    }
 }
 
 function Add-SelDeviceEvent {
@@ -270,11 +545,43 @@ function Invoke-SelInventory {
         $Serial = Read-Host "Serial"
     }
 
-    if (-not $Serial) {
-        throw "Serial is required for inventory scaffold."
+    $defaults = Get-SelDefaults -Profile $Profile
+    if (-not $HostIp) {
+        $HostIp = [string]$defaults.DefaultIP
     }
 
-    $defaults = Get-SelDefaults -Profile $Profile
+    if (-not $HostIp) {
+        throw "HostIp is required for inventory when DefaultIP is not set."
+    }
+
+    $capture = Invoke-SelTelnetInventoryCapture -HostIp $HostIp -AccPassword ([string]$defaults.ACCPassword)
+    $idParsed = Parse-SelIdOutput -Text $capture.ID
+    $staParsed = Parse-SelStaOutput -Text $capture.STA
+    $ethParsed = Parse-SelEthOutput -Text $capture.ETH
+
+    $observedSerial = [string]$staParsed.Serial
+    if (-not $observedSerial) {
+        $observedSerial = $Serial
+    }
+    if (-not $observedSerial) {
+        throw "Could not determine serial from STA output and no Serial argument was provided."
+    }
+
+    $status = "success"
+    if (-not $capture.AccOk) {
+        $status = "id-only"
+    }
+    if ($Serial -and $staParsed.Serial -and $Serial -ne $staParsed.Serial) {
+        $status = "serial-mismatch-warning"
+    }
+
+    $observedFid = ""
+    if ($staParsed.FID) {
+        $observedFid = [string]$staParsed.FID
+    }
+    elseif ($idParsed.PSObject.Properties.Name -contains "FID") {
+        $observedFid = [string]$idParsed.FID
+    }
 
     $event = [pscustomobject]@{
         timestamp = (Get-Date).ToString("s")
@@ -282,14 +589,30 @@ function Invoke-SelInventory {
         hostIp = $HostIp
         profile = $Profile
         defaultsDefaultIp = [string]$defaults.DefaultIP
-        status = "scaffold"
-        note = "Telnet collection not implemented yet."
+        status = $status
+        identity = [pscustomobject]@{
+            requestedSerial = $Serial
+            observedSerial = $observedSerial
+        }
+        inventory = [pscustomobject]@{
+            ID = $idParsed
+            STA = $staParsed
+            ETH = $ethParsed
+        }
+        protocol = [pscustomobject]@{
+            accOk = $capture.AccOk
+        }
     }
 
-    Add-SelDeviceEvent -Serial $Serial -Event $event
-    Update-SelDesiredStateObserved -Serial $Serial -ObservedIP $HostIp
+    $observedIp = [string]$ethParsed.IP
+    if (-not $observedIp) {
+        $observedIp = $HostIp
+    }
 
-    Write-Output ("Inventory scaffold complete for serial {0} (profile={1})." -f $Serial, $Profile)
+    Add-SelDeviceEvent -Serial $observedSerial -Event $event
+    Update-SelDesiredStateObserved -Serial $observedSerial -Mac ([string]$ethParsed.MAC) -ObservedIP $observedIp -ObservedFirmwareLabel (Get-SelFirmwareLabelFromFid -Fid $observedFid) -ObservedFid $observedFid
+
+    Write-Output ("Inventory collected for serial {0} from {1} (acc={2}, status={3})." -f $observedSerial, $HostIp, $capture.AccOk, $status)
 }
 
 function Invoke-SelReIp {
@@ -345,6 +668,9 @@ Export-ModuleMember -Function @(
     "Get-SelDesiredStateRows",
     "Get-SelDesiredStateActiveRows",
     "Test-SelDesiredStateRowActive",
+    "Parse-SelIdOutput",
+    "Parse-SelStaOutput",
+    "Parse-SelEthOutput",
     "Resolve-SelReIpTarget",
     "Update-SelDesiredStateObserved",
     "Add-SelDeviceEvent",

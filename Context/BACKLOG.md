@@ -3,9 +3,12 @@
 ## Done
 - Drafted module spec + safety policies
 - Captured v0.1 decisions for command surface, persistence, logging, and CSV handling
+- CLI scaffold (`seltools.ps1`) with profile-based defaults selection
+- Live inventory over Telnet implemented (`ID` -> `ACC` -> `STA` -> `ETH`) with parsing + persistence
+- Baseline parser/preference tests in Pester are passing
 
 ## In progress
-- Scaffold module + CLI entrypoint (`seltools.ps1` + module)
+- Re-IP implementation over Telnet (`SET P 1` interactive dialog + reconnect verify)
 
 ## Next
 ### 1) CLI scaffolding
@@ -31,7 +34,7 @@
 - Ignores reserved/inactive rows (`TEMPLATE`, blank serial, or `Active=false`).
 **Blockers:** none
 
-### 4) Re-IP workflow (working)
+### 4) Re-IP workflow (next major implementation)
 **Acceptance:**
 - Value precedence: CLI > desiredstate by serial > prompt.
 - Escalation probe order for `SET P 1`: ACC -> 2AC -> C.
@@ -49,4 +52,4 @@
 **Acceptance:**
 - Pester tests for parser logic, CSV row filtering, and input precedence resolver.
 - Pester tests for CLI argument handling and fallback prompting behavior.
-**Blockers:** none
+**Blockers:** add integration-like transcript tests as Telnet/reip matures
