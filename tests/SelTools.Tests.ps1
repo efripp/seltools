@@ -20,6 +20,34 @@ TEMPLATE,FALSE,,192.168.1.200,255.255.255.0,192.168.1.1,,,,,,,,
     }
 }
 
+Describe "Defaults profile selection" {
+    It "selects factory profile by default" {
+        $tmp = Join-Path $TestDrive "defaults.csv"
+        @'
+Profile,DefaultIP,DefaultSubnetMask,TargetSubnetMask,TargetGateway,PoolStartIP,PoolEndIP,ACCPassword,2ACPassword,CALPassword,FtpUser,FtpPassword,TargetFirmwareLabel,TargetFirmwareFile,IdentifyEnabledDefault,RequireOUICheckDefault,AllowedOUIs
+factory,192.168.1.2,255.255.255.0,255.255.255.0,192.168.1.1,192.168.1.100,192.168.1.199,OTTER,TAIL,CLARKE,ftp,ftp,SEL-751-R401,RELAY.ZDS,TRUE,FALSE,00-30-A7
+site-a,10.10.0.10,255.255.255.0,255.255.255.0,10.10.0.1,10.10.0.100,10.10.0.199,,,,ftp,,SEL-751-R401,RELAY.ZDS,TRUE,FALSE,00-30-A7
+'@ | Set-Content $tmp
+
+        $row = Get-SelDefaults -Path $tmp
+        $row.Profile | Should Be "factory"
+        $row.ACCPassword | Should Be "OTTER"
+    }
+
+    It "selects an explicit profile" {
+        $tmp = Join-Path $TestDrive "defaults.csv"
+        @'
+Profile,DefaultIP,DefaultSubnetMask,TargetSubnetMask,TargetGateway,PoolStartIP,PoolEndIP,ACCPassword,2ACPassword,CALPassword,FtpUser,FtpPassword,TargetFirmwareLabel,TargetFirmwareFile,IdentifyEnabledDefault,RequireOUICheckDefault,AllowedOUIs
+factory,192.168.1.2,255.255.255.0,255.255.255.0,192.168.1.1,192.168.1.100,192.168.1.199,OTTER,TAIL,CLARKE,ftp,ftp,SEL-751-R401,RELAY.ZDS,TRUE,FALSE,00-30-A7
+site-a,10.10.0.10,255.255.255.0,255.255.255.0,10.10.0.1,10.10.0.100,10.10.0.199,,,,ftp,,SEL-751-R401,RELAY.ZDS,TRUE,FALSE,00-30-A7
+'@ | Set-Content $tmp
+
+        $row = Get-SelDefaults -Profile "site-a" -Path $tmp
+        $row.Profile | Should Be "site-a"
+        $row.DefaultIP | Should Be "10.10.0.10"
+    }
+}
+
 Describe "ReIP precedence" {
     It "prefers CLI values over desiredstate.csv" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"

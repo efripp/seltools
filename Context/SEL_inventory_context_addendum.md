@@ -212,20 +212,23 @@ Because multiple MAC addresses may exist:
 
 The project uses two CSV files for local configuration and desired state. Below are sample starter files.
 
-## defaults.csv (single-row runtime defaults)
+## defaults.csv (profile-based runtime defaults)
 
-- This file should contain **one row only**.
+- This file contains one row per profile.
+- Include a `Profile` column and select rows by profile name (default: `factory`).
 - Stores default network assumptions, credentials, and firmware targets.
 
 Example:
 
 ```csv
-DefaultIP,DefaultSubnetMask,TargetSubnetMask,TargetGateway,PoolStartIP,PoolEndIP,ACCPassword,2ACPassword,CALPassword,FtpUser,FtpPassword,TargetFirmwareLabel,TargetFirmwareFile,IdentifyEnabledDefault,RequireOUICheckDefault,AllowedOUIs
-192.168.1.2,255.255.255.0,255.255.255.0,192.168.1.1,192.168.1.100,192.168.1.199,changeme,changeme,,ftp,ftp,SEL-751-R401,RELAY.ZDS,true,false,00-30-A7
+Profile,DefaultIP,DefaultSubnetMask,TargetSubnetMask,TargetGateway,PoolStartIP,PoolEndIP,ACCPassword,2ACPassword,CALPassword,FtpUser,FtpPassword,TargetFirmwareLabel,TargetFirmwareFile,IdentifyEnabledDefault,RequireOUICheckDefault,AllowedOUIs
+factory,192.168.1.2,255.255.255.0,255.255.255.0,192.168.1.1,192.168.1.100,192.168.1.199,OTTER,TAIL,CLARKE,ftp,ftp,SEL-751-R401,RELAY.ZDS,true,false,00-30-A7
+site-a,10.10.0.10,255.255.255.0,255.255.255.0,10.10.0.1,10.10.0.100,10.10.0.199,,,,ftp,,SEL-751-R401,RELAY.ZDS,true,false,00-30-A7
 ```
 
 Column notes:
 
+- **Profile**: named defaults profile (for example `factory`, `site-a`)
 - **DefaultIP**: expected factory/default IP before commissioning (often 192.168.1.2)
 - **PoolStartIP/PoolEndIP**: allocation pool for bulk re-IP modes
 - **ACCPassword / 2ACPassword / CALPassword**: access escalation passwords (CAL may be blank if not used)
@@ -241,8 +244,8 @@ Column notes:
 Example:
 
 ```csv
-Serial,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,192.168.1.2,SEL-751-R401,SEL-751-R401-V0-Z101100-D20240308,,,,"Example relay"
+Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,192.168.1.2,SEL-751-R401,SEL-751-R401-V0-Z101100-D20240308,,,,"Example relay"
 ```
 
 Field notes:

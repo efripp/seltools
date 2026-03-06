@@ -7,7 +7,8 @@ param(
     [string]$HostIp,
     [string]$Ip,
     [string]$Mask,
-    [string]$Gateway
+    [string]$Gateway,
+    [string]$Profile = "factory"
 )
 
 $modulePath = Join-Path $PSScriptRoot "src\SelTools\SelTools.psm1"
@@ -19,13 +20,13 @@ if (-not $Command) {
 
 switch ($Command.ToLowerInvariant()) {
     "inventory" {
-        Invoke-SelInventory -Serial $Serial -HostIp $HostIp
+        Invoke-SelInventory -Serial $Serial -HostIp $HostIp -Profile $Profile
     }
     "reip" {
-        Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway
+        Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile
     }
     "fwupgrade" {
-        Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp
+        Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp -Profile $Profile
     }
     default {
         throw "Unsupported command: $Command"

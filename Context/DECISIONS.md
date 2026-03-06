@@ -65,3 +65,9 @@
 **Alternatives:** PowerShell 7+ only, custom script tests.
 **Reason:** Max compatibility on commissioning laptops with standard test framework.
 **Consequence:** Implementation should avoid PS7-only language/features.
+
+## ADR-0012: Defaults profiles
+**Decision:** `defaults.csv` supports multiple rows with a required `Profile` column; CLI selects via `-Profile` and defaults to `factory`.
+**Alternatives:** Single-row defaults only.
+**Reason:** Preserve factory defaults while allowing site-specific profiles.
+**Consequence:** Defaults loader must resolve profile names and fail clearly when profile is missing.

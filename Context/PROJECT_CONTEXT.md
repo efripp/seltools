@@ -28,8 +28,9 @@
 
 ## Input and persistence policy
 - Credentials source policy:
-  - Read from `defaults.csv` when present.
+  - Read from `defaults.csv` profile row when present (default profile: `factory`).
   - Prompt securely when missing.
+  - `seltools.ps1` supports `-Profile <name>` to select a defaults row.
 - Re-IP target precedence:
   1. CLI args
   2. `desiredstate.csv` lookup by Serial

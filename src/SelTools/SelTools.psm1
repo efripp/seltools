@@ -13,6 +13,48 @@ function Get-SelDataPath {
     return (Join-Path (Get-SelRepoRoot) ("data\" + $ChildPath))
 }
 
+function Get-SelDefaultsRows {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Path = (Get-SelDataPath -ChildPath "defaults.csv")
+    )
+
+    if (-not (Test-Path $Path)) {
+        return @()
+    }
+
+    return @(Import-Csv -Path $Path)
+}
+
+function Get-SelDefaults {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Profile = "factory",
+        [Parameter(Mandatory = $false)]
+        [string]$Path = (Get-SelDataPath -ChildPath "defaults.csv")
+    )
+
+    $rows = Get-SelDefaultsRows -Path $Path
+    if (-not $rows -or $rows.Count -eq 0) {
+        throw "defaults.csv is empty or missing."
+    }
+
+    $hasProfile = $rows[0].PSObject.Properties.Name -contains "Profile"
+    if (-not $hasProfile) {
+        if ($rows.Count -eq 1) {
+            return $rows[0]
+        }
+        throw "defaults.csv has multiple rows but no Profile column."
+    }
+
+    $match = $rows | Where-Object { ([string]$_.Profile).Trim().ToLowerInvariant() -eq $Profile.Trim().ToLowerInvariant() } | Select-Object -First 1
+    if (-not $match) {
+        throw ("Profile '{0}' not found in defaults.csv." -f $Profile)
+    }
+
+    return $match
+}
+
 function ConvertTo-SelBool {
     param(
         [AllowNull()]
@@ -220,7 +262,8 @@ function Add-SelDeviceEvent {
 function Invoke-SelInventory {
     param(
         [string]$Serial,
-        [string]$HostIp
+        [string]$HostIp,
+        [string]$Profile = "factory"
     )
 
     if (-not $Serial) {
@@ -231,10 +274,14 @@ function Invoke-SelInventory {
         throw "Serial is required for inventory scaffold."
     }
 
+    $defaults = Get-SelDefaults -Profile $Profile
+
     $event = [pscustomobject]@{
         timestamp = (Get-Date).ToString("s")
         action = "inventory"
         hostIp = $HostIp
+        profile = $Profile
+        defaultsDefaultIp = [string]$defaults.DefaultIP
         status = "scaffold"
         note = "Telnet collection not implemented yet."
     }
@@ -242,7 +289,7 @@ function Invoke-SelInventory {
     Add-SelDeviceEvent -Serial $Serial -Event $event
     Update-SelDesiredStateObserved -Serial $Serial -ObservedIP $HostIp
 
-    Write-Output "Inventory scaffold complete for serial $Serial."
+    Write-Output ("Inventory scaffold complete for serial {0} (profile={1})." -f $Serial, $Profile)
 }
 
 function Invoke-SelReIp {
@@ -251,12 +298,15 @@ function Invoke-SelReIp {
         [string]$HostIp,
         [string]$Ip,
         [string]$Mask,
-        [string]$Gateway
+        [string]$Gateway,
+        [string]$Profile = "factory"
     )
 
     if (-not $Serial) {
         $Serial = Read-Host "Serial"
     }
+
+    $defaults = Get-SelDefaults -Profile $Profile
 
     $target = Resolve-SelReIpTarget -Serial $Serial -Ip $Ip -Mask $Mask -Gateway $Gateway -PromptIfMissing
 
@@ -268,24 +318,30 @@ function Invoke-SelReIp {
         targetMask = $target.Mask
         targetGateway = $target.Gateway
         source = $target.Source
+        profile = $Profile
+        defaultsDefaultIp = [string]$defaults.DefaultIP
         status = "scaffold"
         note = "SET P 1 automation not implemented yet."
     }
 
     Add-SelDeviceEvent -Serial $Serial -Event $event
-    Write-Output ("ReIP scaffold target resolved: {0}/{1} gw {2} (source={3})" -f $target.Ip, $target.Mask, $target.Gateway, $target.Source)
+    Write-Output ("ReIP scaffold target resolved: {0}/{1} gw {2} (source={3}, profile={4})" -f $target.Ip, $target.Mask, $target.Gateway, $target.Source, $Profile)
 }
 
 function Invoke-SelFwUpgrade {
     param(
         [string]$Serial,
-        [string]$HostIp
+        [string]$HostIp,
+        [string]$Profile = "factory"
     )
 
-    throw "fwupgrade is not implemented in v0.1 scaffold yet."
+    $null = Get-SelDefaults -Profile $Profile
+    throw ("fwupgrade is not implemented in v0.1 scaffold yet (profile={0})." -f $Profile)
 }
 
 Export-ModuleMember -Function @(
+    "Get-SelDefaultsRows",
+    "Get-SelDefaults",
     "Get-SelDesiredStateRows",
     "Get-SelDesiredStateActiveRows",
     "Test-SelDesiredStateRowActive",
