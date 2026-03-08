@@ -23,6 +23,7 @@
 - Single CLI entry script `seltools.ps1` over a reusable PowerShell module.
 - Bundled `tools/plink.exe` process transport for Telnet and built-in `FtpWebRequest` for FTP.
 - Prompt-driven Telnet automation using read-until prompt matching.
+- Menu-driven interactive CLI is shown when `seltools.ps1` runs without `-Command`.
 - Serial is authoritative identity; MAC is advisory only.
 - Runtime target: Windows PowerShell 5.1.
 
@@ -64,15 +65,17 @@
 - `seltools.ps1 inventory` captures ID/STA/ETH (or ID-only fallback) and persists JSON plus observed CSV state.
 - `seltools.ps1 reip` applies IP/mask/gateway via `SET P 1`, reconnects, and verifies identity behavior.
 - `seltools.ps1 fwupgrade` exists as a stub with explicit `NotImplemented` output.
-- Commands support interactive prompts when args are missing.
-- Pester tests cover parser behavior and argument/input precedence.
+- Commands support interactive prompts and no-arg menu operation.
+- Pester tests cover parser behavior, argument/input precedence, and CLI helper dispatch/prompt defaults.
 
-## Implementation status (2026-03-05)
+## Implementation status (2026-03-08)
 - Implemented:
   - Profile-based defaults selection (`-Profile`, default `factory`)
+  - Plink transport for Telnet session handling (`tools/plink.exe` with `SELTOOLS_PLINK_PATH` override)
   - Live inventory Telnet flow (`ID`, `ACC`, `STA`, `ETH`)
   - Parsing of ID/STA/ETH fields and persistence to:
     - `data/devices/<serial>.json`
     - observed columns in `data/desiredstate.csv`
+  - Menu-driven no-arg CLI (`inventory|reip|fwupgrade|help|exit`) with guided prompts and value prefills
 - Current next target:
   - Implement live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.

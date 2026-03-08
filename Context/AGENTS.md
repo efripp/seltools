@@ -6,9 +6,9 @@
 - BACKLOG.md
 
 ## Coding conventions
-- PowerShell 7+ compatible, but avoid PS7-only features unless needed.
+- Target Windows PowerShell 5.1; avoid PS7-only features.
 - Clarity > cleverness; prefer small functions.
-- Public functions in src/SelTool/Public; internal helpers in Private.
+- Main module is `src/SelTools/SelTools.psm1`; CLI entrypoint is `seltools.ps1`.
 - Return structured objects (pscustomobject) rather than strings.
 
 ## Safety requirements
@@ -16,7 +16,7 @@
 - Verify identity by Serial before and after re-IP and upgrades.
 
 ## Tests
-- Add Pester tests for parsing functions and argument handling.
+- Add/update Pester tests for parser behavior, argument/input precedence, and CLI helper/dispatch behavior.
 
 ## PR format
 - Summarize changes

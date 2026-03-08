@@ -77,3 +77,9 @@
 **Alternatives:** Keep scaffold inventory until all commands are implemented.
 **Reason:** Field validation against real SEL relays is needed early to de-risk parser and protocol assumptions.
 **Consequence:** Inventory events now include parsed protocol data and observed-state updates from live relay responses.
+
+## ADR-0014: No-arg CLI uses menu-driven interactive mode
+**Decision:** When `seltools.ps1` is run without `-Command`, present a numbered menu loop (`inventory`, `reip`, `fwupgrade`, `help`, `exit`) with guided prompts and prefilled values from any provided options.
+**Alternatives:** Single free-text command prompt, or hard error when `-Command` is omitted.
+**Reason:** Improve field usability while preserving explicit command-mode automation.
+**Consequence:** CLI script includes interactive menu helpers and direct dispatch remains unchanged when `-Command` is provided.

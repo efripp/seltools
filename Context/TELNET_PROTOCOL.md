@@ -8,6 +8,7 @@ Generated: 2026-03-05T23:14:48.647679
 # Scope
 
 Defines the Telnet behaviors and parsing assumptions used by SelTools when interacting with SEL relays (starting with SEL‑751).
+Runtime transport is implemented via bundled `tools/plink.exe` in telnet mode.
 
 ---
 

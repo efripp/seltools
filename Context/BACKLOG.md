@@ -4,8 +4,10 @@
 - Drafted module spec + safety policies
 - Captured v0.1 decisions for command surface, persistence, logging, and CSV handling
 - CLI scaffold (`seltools.ps1`) with profile-based defaults selection
+- Bundled `plink.exe` transport integrated for Telnet session flow
 - Live inventory over Telnet implemented (`ID` -> `ACC` -> `STA` -> `ETH`) with parsing + persistence
-- Baseline parser/preference tests in Pester are passing
+- No-arg menu-driven CLI flow implemented (`inventory`, `reip`, `fwupgrade`, `help`, `exit`)
+- Baseline parser/preference and CLI helper tests in Pester are passing
 
 ## In progress
 - Re-IP implementation over Telnet (`SET P 1` interactive dialog + reconnect verify)
@@ -15,6 +17,7 @@
 **Acceptance:**
 - `seltools.ps1` supports `inventory`, `reip`, and `fwupgrade` (stub).
 - Missing inputs are prompted interactively.
+- Running without `-Command` enters the menu loop and supports guided prompt prefills.
 - Command parsing works on Windows PowerShell 5.1.
 **Blockers:** none
 
