@@ -8,6 +8,8 @@
 - Live inventory over Telnet implemented (`ID` -> `ACC` -> `STA` -> `ETH`) with parsing + persistence
 - No-arg menu-driven CLI flow implemented (`inventory`, `reip`, `fwupgrade`, `help`, `exit`)
 - Baseline parser/preference and CLI helper tests in Pester are passing
+- Inventory supports serial-based host lookup using prior JSON/desiredstate observations with conflict chooser
+- `-DebugTransport` tracing added for live transport + command-flow diagnostics to console and run log
 
 ## In progress
 - Re-IP implementation over Telnet (`SET P 1` interactive dialog + reconnect verify)

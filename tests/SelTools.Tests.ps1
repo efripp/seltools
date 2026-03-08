@@ -134,3 +134,77 @@ DEFAULT GATEWAY: 192.168.1.1
         $parsed.Gateway | Should Be "192.168.1.1"
     }
 }
+
+Describe "Inventory serial extraction" {
+    It "extracts serial from ID parsed fields when present" {
+        $idParsed = [pscustomobject]@{
+            SERIALNUM = "3241995707"
+        }
+
+        $serial = Get-SelSerialFromIdParsed -IdParsed $idParsed
+        $serial | Should Be "3241995707"
+    }
+}
+
+Describe "Inventory host resolution" {
+    It "uses host ip from device history json when no host is provided" {
+        $devicesDir = Join-Path $TestDrive "devices"
+        New-Item -ItemType Directory -Path $devicesDir -Force | Out-Null
+        @'
+{
+  "serial": "3241995707",
+  "events": [
+    {
+      "timestamp": "2026-03-08T08:30:00",
+      "action": "inventory",
+      "hostIp": "192.168.1.2"
+    }
+  ]
+}
+'@ | Set-Content (Join-Path $devicesDir "3241995707.json")
+
+        $resolved = Resolve-SelInventoryHostIp -Serial "3241995707" -DevicesDirectory $devicesDir -DesiredStatePath (Join-Path $TestDrive "missing.csv")
+        $resolved.HostIp | Should Be "192.168.1.2"
+        $resolved.Source | Should Be "json"
+    }
+
+    It "prompts on json/desiredstate conflict and uses selected option" {
+        $devicesDir = Join-Path $TestDrive "devices"
+        New-Item -ItemType Directory -Path $devicesDir -Force | Out-Null
+        @'
+{
+  "serial": "3241995707",
+  "events": [
+    {
+      "timestamp": "2026-03-08T08:30:00",
+      "action": "inventory",
+      "hostIp": "192.168.1.2"
+    }
+  ]
+}
+'@ | Set-Content (Join-Path $devicesDir "3241995707.json")
+
+        $desired = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,192.168.1.10,SEL-751-R401,SEL-751-R401-V0,2026-03-08T08:40:00,inventory,success,Example relay
+'@ | Set-Content $desired
+
+        $script:choiceQueue = @("2")
+        $readInput = {
+            param([string]$Prompt)
+            $next = $script:choiceQueue[0]
+            if ($script:choiceQueue.Count -gt 1) {
+                $script:choiceQueue = @($script:choiceQueue[1..($script:choiceQueue.Count - 1)])
+            }
+            else {
+                $script:choiceQueue = @()
+            }
+            return $next
+        }
+
+        $resolved = Resolve-SelInventoryHostIp -Serial "3241995707" -DevicesDirectory $devicesDir -DesiredStatePath $desired -ReadInput $readInput
+        $resolved.HostIp | Should Be "192.168.1.10"
+        $resolved.Source | Should Be "desiredstate"
+    }
+}

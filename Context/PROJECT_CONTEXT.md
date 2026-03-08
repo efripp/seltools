@@ -40,6 +40,13 @@
   - Append structured event to `data/devices/<serial>.json`
   - Update observed fields in `desiredstate.csv`
   - If serial is missing in CSV, append a new row with observed values
+- Inventory host resolution precedence:
+  1. CLI `-HostIp`
+  2. If `-Serial` is provided and `-HostIp` is missing:
+     - latest inventory `hostIp` from `data/devices/<serial>.json`
+     - if conflicting with `desiredstate.csv` `ObservedIP`, operator chooses source (json/desiredstate/quit)
+  3. Profile `DefaultIP` (when Serial is not provided)
+- If no connectable IP can be resolved from the above, inventory fails with guidance to run IP-range discovery.
 - Reserved or inactive CSV rows are ignored by runtime processing:
   - `Serial=TEMPLATE` rows
   - blank Serial rows
@@ -54,6 +61,7 @@
 ## Logging policy
 - One run log file per run: `logs/run-YYYYMMDD-HHMMSS.log`
 - Default verbosity: `Compact` (optional `Full`)
+- `seltools.ps1` supports `-DebugTransport` for live console+file transport tracing.
 - Redact sensitive values in logs during transmission.
 - Per-device JSON stores structured facts only and references run log location.
 

@@ -83,3 +83,15 @@
 **Alternatives:** Single free-text command prompt, or hard error when `-Command` is omitted.
 **Reason:** Improve field usability while preserving explicit command-mode automation.
 **Consequence:** CLI script includes interactive menu helpers and direct dispatch remains unchanged when `-Command` is provided.
+
+## ADR-0015: Inventory serial can resolve host IP but not identity
+**Decision:** For `inventory`, `-Serial` may be used only to resolve a missing host IP from prior state; device identity remains relay-derived from live protocol output.
+**Alternatives:** Ignore serial entirely in inventory, or permit manual serial fallback for persistence.
+**Reason:** Serial can speed reconnect workflows, but manual serial should not overwrite relay-reported identity.
+**Consequence:** Inventory host resolution may prompt when JSON and desiredstate IPs conflict; if no host can be resolved, command fails with range-discovery guidance.
+
+## ADR-0016: Debug transport trace mode
+**Decision:** Add `-DebugTransport` switch to CLI command paths to emit live transport+command-flow diagnostics to console and `logs/run-*.log`.
+**Alternatives:** Console-only ad hoc output or log-file-only tracing.
+**Reason:** Field troubleshooting needs immediate visibility into where Telnet/plink sessions stall.
+**Consequence:** Transport helpers include timeout-aware trace points and redacted TX logging for sensitive values.

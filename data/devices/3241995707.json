@@ -2,59 +2,14 @@
     "serial":  "3241995707",
     "events":  [
                    {
-                       "timestamp":  "2026-03-05T20:40:36",
-                       "action":  "inventory",
-                       "hostIp":  "192.168.1.2",
-                       "profile":  "factory",
-                       "defaultsDefaultIp":  "192.168.1.2",
-                       "status":  "scaffold",
-                       "note":  "Telnet collection not implemented yet."
-                   },
-                   {
-                       "timestamp":  "2026-03-05T20:40:53",
-                       "action":  "inventory",
-                       "hostIp":  "192.168.1.2",
-                       "profile":  "factory",
-                       "defaultsDefaultIp":  "192.168.1.2",
-                       "status":  "scaffold",
-                       "note":  "Telnet collection not implemented yet."
-                   },
-                   {
-                       "timestamp":  "2026-03-05T20:41:17",
-                       "action":  "inventory",
-                       "hostIp":  "192.168.1.2",
-                       "profile":  "factory",
-                       "defaultsDefaultIp":  "192.168.1.2",
-                       "status":  "scaffold",
-                       "note":  "Telnet collection not implemented yet."
-                   },
-                   {
-                       "timestamp":  "2026-03-05T20:41:34",
-                       "action":  "inventory",
-                       "hostIp":  "192.168.1.2",
-                       "profile":  "factory",
-                       "defaultsDefaultIp":  "192.168.1.2",
-                       "status":  "scaffold",
-                       "note":  "Telnet collection not implemented yet."
-                   },
-                   {
-                       "timestamp":  "2026-03-05T20:43:50",
-                       "action":  "inventory",
-                       "hostIp":  "192.168.1.2",
-                       "profile":  "factory",
-                       "defaultsDefaultIp":  "192.168.1.2",
-                       "status":  "scaffold",
-                       "note":  "Telnet collection not implemented yet."
-                   },
-                   {
-                       "timestamp":  "2026-03-05T20:46:49",
+                       "timestamp":  "2026-03-08T14:21:32",
                        "action":  "inventory",
                        "hostIp":  "192.168.1.2",
                        "profile":  "factory",
                        "defaultsDefaultIp":  "192.168.1.2",
                        "status":  "success",
                        "identity":  {
-                                        "requestedSerial":  null,
+                                        "requestedSerial":  "",
                                         "observedSerial":  "3241995707"
                                     },
                        "inventory":  {
@@ -76,7 +31,7 @@
                                                      "Serial":  "3241995707",
                                                      "FID":  "SEL-751-R401-V0-Z101100-D20240308",
                                                      "CID":  "1D4A",
-                                                     "PARTNUM":  "751001A1A4A0X851G10"
+                                                     "PARTNUM":  ""
                                                  },
                                          "ETH":  {
                                                      "MAC":  "00-30-A7-3D-6F-A9",

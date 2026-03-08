@@ -8,7 +8,8 @@ param(
     [string]$Ip,
     [string]$Mask,
     [string]$Gateway,
-    [string]$Profile = "factory"
+    [string]$Profile = "factory",
+    [switch]$DebugTransport
 )
 
 $modulePath = Join-Path $PSScriptRoot "src\SelTools\SelTools.psm1"
@@ -51,9 +52,29 @@ function Show-SelMenu {
 function Show-SelHelp {
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  .\seltools.ps1 inventory -Serial 3241995707 -HostIp 192.168.1.2"
+    Write-Host "  .\seltools.ps1 inventory -HostIp 192.168.1.2"
+    Write-Host "  .\seltools.ps1 inventory -Serial 3241995707"
     Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1"
     Write-Host "  .\seltools.ps1 fwupgrade -Serial 3241995707 -HostIp 192.168.1.2"
+}
+
+function Resolve-SelMenuHostIpDefault {
+    param(
+        [string]$CurrentHostIp,
+        [string]$Profile = "factory"
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($CurrentHostIp)) {
+        return $CurrentHostIp
+    }
+
+    try {
+        $defaults = Get-SelDefaults -Profile $Profile
+        return [string]$defaults.DefaultIP
+    }
+    catch {
+        return $CurrentHostIp
+    }
 }
 
 function Invoke-SelDispatch {
@@ -66,18 +87,57 @@ function Invoke-SelDispatch {
         [string]$Ip,
         [string]$Mask,
         [string]$Gateway,
-        [string]$Profile = "factory"
+        [string]$Profile = "factory",
+        [switch]$DebugTransport,
+        [switch]$PassThru
     )
 
     switch ($CommandName.ToLowerInvariant()) {
         "inventory" {
-            Invoke-SelInventory -Serial $Serial -HostIp $HostIp -Profile $Profile
+            Invoke-SelInventory -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
         }
         "reip" {
-            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile
+            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
         }
         "fwupgrade" {
-            Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp -Profile $Profile
+            Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport
+        }
+    }
+}
+
+function Write-SelRunReport {
+    param(
+        [object[]]$Results = @()
+    )
+
+    $items = @($Results | Where-Object { $null -ne $_ -and $_.PSObject.Properties.Name -contains "Action" })
+    Write-Host ""
+    Write-Host "Run Report"
+    if (-not $items -or $items.Count -eq 0) {
+        Write-Host "  No actions recorded."
+        return
+    }
+
+    $inventoryItems = @($items | Where-Object { $_.Action -eq "inventory" })
+    $newItems = @($inventoryItems | Where-Object { $_.IsNewDevice })
+    $changedItems = @($inventoryItems | Where-Object { -not $_.IsNewDevice -and $_.Changes -and $_.Changes.Count -gt 0 })
+
+    Write-Host ("  Actions: {0}" -f $items.Count)
+    Write-Host ("  New devices discovered: {0}" -f $newItems.Count)
+    foreach ($item in $newItems) {
+        Write-Host ("    - Serial {0}, IP {1}" -f $item.Serial, $item.ObservedIp)
+    }
+
+    Write-Host ("  Existing devices with changes: {0}" -f $changedItems.Count)
+    if ($changedItems.Count -eq 0) {
+        Write-Host "  No changes detected."
+    }
+    else {
+        foreach ($item in $changedItems) {
+            Write-Host ("    - Serial {0}, IP {1}" -f $item.Serial, $item.ObservedIp)
+            foreach ($change in @($item.Changes)) {
+                Write-Host ("      * {0}" -f $change)
+            }
         }
     }
 }
@@ -90,8 +150,11 @@ function Start-SelInteractiveMenu {
         [string]$Mask,
         [string]$Gateway,
         [string]$Profile = "factory",
+        [switch]$DebugTransport,
         [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
     )
+
+    $runResults = @()
 
     while ($true) {
         Show-SelMenu
@@ -99,17 +162,22 @@ function Start-SelInteractiveMenu {
 
         switch ($choice) {
             "1" {
-                $Serial = Get-SelPromptValue -Label "Serial" -CurrentValue $Serial -ReadInput $ReadInput
+                $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
                 $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
                 $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
+                $Serial = Get-SelPromptValue -Label "Serial (optional lookup when Host IP is blank)" -CurrentValue $Serial -ReadInput $ReadInput
                 try {
-                    Invoke-SelDispatch -CommandName "inventory" -Serial $Serial -HostIp $HostIp -Profile $Profile
+                    $result = Invoke-SelDispatch -CommandName "inventory" -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+                    if ($null -ne $result) {
+                        $runResults += $result
+                    }
                 }
                 catch {
-                    Write-Error $_
+                    Write-Host ("Inventory failed: {0}" -f $_.Exception.Message)
                 }
             }
             "2" {
+                $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
                 $Serial = Get-SelPromptValue -Label "Serial" -CurrentValue $Serial -ReadInput $ReadInput
                 $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
                 $Ip = Get-SelPromptValue -Label "Target IP" -CurrentValue $Ip -ReadInput $ReadInput
@@ -117,28 +185,33 @@ function Start-SelInteractiveMenu {
                 $Gateway = Get-SelPromptValue -Label "Target gateway" -CurrentValue $Gateway -ReadInput $ReadInput
                 $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
                 try {
-                    Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile
+                    $result = Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+                    if ($null -ne $result) {
+                        $runResults += $result
+                    }
                 }
                 catch {
-                    Write-Error $_
+                    Write-Host ("Re-IP failed: {0}" -f $_.Exception.Message)
                 }
             }
             "3" {
+                $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
                 $Serial = Get-SelPromptValue -Label "Serial" -CurrentValue $Serial -ReadInput $ReadInput
                 $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
                 $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
                 try {
-                    Invoke-SelDispatch -CommandName "fwupgrade" -Serial $Serial -HostIp $HostIp -Profile $Profile
+                    Invoke-SelDispatch -CommandName "fwupgrade" -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport
                 }
                 catch {
-                    Write-Error $_
+                    Write-Host ("Firmware upgrade failed: {0}" -f $_.Exception.Message)
                 }
             }
             "4" {
                 Show-SelHelp
             }
             "5" {
-                break
+                Write-SelRunReport -Results $runResults
+                return
             }
             default {
                 Write-Host ("Invalid selection '{0}'. Choose 1-5." -f $choice)
@@ -152,8 +225,9 @@ if ($MyInvocation.InvocationName -eq ".") {
 }
 
 if ($Command) {
-    Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile
+    $result = Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+    Write-SelRunReport -Results @($result)
 }
 else {
-    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile
+    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport
 }
