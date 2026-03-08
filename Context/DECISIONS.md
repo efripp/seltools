@@ -1,10 +1,10 @@
 # DECISIONS (ADR)
 
-## ADR-0001: Use PowerShell + built-in .NET only
-**Decision:** Implement Telnet/FTP using `TcpClient` and `FtpWebRequest`.
-**Alternatives:** NuGet Telnet libs, external `telnet.exe`.
-**Reason:** No dependencies; auditable; works on locked-down laptops.
-**Consequence:** Must implement prompt matching and minimal Telnet negotiation.
+## ADR-0001: Use PowerShell + bundled plink transport
+**Decision:** Implement Telnet transport through bundled `tools/plink.exe`; keep FTP on `FtpWebRequest`.
+**Alternatives:** `TcpClient`/`NetworkStream`, NuGet Telnet libs, external `telnet.exe`.
+**Reason:** Avoid Defender issues from direct socket automation while keeping deployment self-contained.
+**Consequence:** Runtime requires `tools/plink.exe` (or `SELTOOLS_PLINK_PATH` override) and stream-driven prompt matching.
 
 ## ADR-0002: Serial number is authoritative identity
 **Decision:** Use Serial as primary key; MAC is warning/advisory.

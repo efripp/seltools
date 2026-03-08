@@ -48,6 +48,24 @@ site-a,10.10.0.10,255.255.255.0,255.255.255.0,10.10.0.1,10.10.0.100,10.10.0.199,
     }
 }
 
+Describe "Plink path resolution" {
+    It "prefers override path when provided" {
+        $override = Join-Path $TestDrive "plink-override.exe"
+        Set-Content -Path $override -Value "placeholder"
+
+        $resolved = Get-SelPlinkPath -OverridePath $override -RepoDefaultPath (Join-Path $TestDrive "missing-default.exe")
+        $resolved | Should Be (Resolve-Path $override).Path
+    }
+
+    It "falls back to repo default path when override is blank" {
+        $repoDefault = Join-Path $TestDrive "plink-default.exe"
+        Set-Content -Path $repoDefault -Value "placeholder"
+
+        $resolved = Get-SelPlinkPath -OverridePath "" -RepoDefaultPath $repoDefault
+        $resolved | Should Be (Resolve-Path $repoDefault).Path
+    }
+}
+
 Describe "ReIP precedence" {
     It "prefers CLI values over desiredstate.csv" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
@@ -84,7 +102,7 @@ Describe "Inventory parsers" {
 "CID=1D4A","0267"
 "DEVID=SEL-751","03C7"
 '@
-        $parsed = Parse-SelIdOutput -Text $idText
+        $parsed = ConvertFrom-SelIdOutput -Text $idText
         $parsed.FID | Should Be "SEL-751-R401-V0-Z101100-D20240308"
         $parsed.CID | Should Be "1D4A"
         $parsed.DEVID | Should Be "SEL-751"
@@ -95,7 +113,7 @@ Describe "Inventory parsers" {
 Serial Num = 3241995707     FID = SEL-751-R401-V0-Z101100-D20240308
 CID = 1D4A                  PART NUM = 751001A1A4A0X851G10
 '@
-        $parsed = Parse-SelStaOutput -Text $staText
+        $parsed = ConvertFrom-SelStaOutput -Text $staText
         $parsed.Serial | Should Be "3241995707"
         $parsed.FID | Should Be "SEL-751-R401-V0-Z101100-D20240308"
         $parsed.CID | Should Be "1D4A"
@@ -109,7 +127,7 @@ IP ADDRESS: 192.168.1.2
 SUBNET MASK: 255.255.255.0
 DEFAULT GATEWAY: 192.168.1.1
 '@
-        $parsed = Parse-SelEthOutput -Text $ethText
+        $parsed = ConvertFrom-SelEthOutput -Text $ethText
         $parsed.MAC | Should Be "00-30-A7-3D-6F-A9"
         $parsed.IP | Should Be "192.168.1.2"
         $parsed.Mask | Should Be "255.255.255.0"

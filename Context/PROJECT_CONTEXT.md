@@ -21,7 +21,7 @@
 
 ## Architecture decisions
 - Single CLI entry script `seltools.ps1` over a reusable PowerShell module.
-- Built-in .NET only: `TcpClient`/`NetworkStream` for Telnet, `FtpWebRequest` for FTP.
+- Bundled `tools/plink.exe` process transport for Telnet and built-in `FtpWebRequest` for FTP.
 - Prompt-driven Telnet automation using read-until prompt matching.
 - Serial is authoritative identity; MAC is advisory only.
 - Runtime target: Windows PowerShell 5.1.

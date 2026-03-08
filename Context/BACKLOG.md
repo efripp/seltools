@@ -20,7 +20,7 @@
 
 ### 2) Telnet session MVP
 **Acceptance:**
-- Connect/Send/ReadUntil works with basic IAC/control-character handling.
+- Plink-backed session transport can connect/send/read-until prompt reliably.
 - Prompt detection supports `=`, `=>`, and `=>>`.
 - Logging uses shared run logger with default Compact mode.
 **Blockers:** none

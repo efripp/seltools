@@ -92,40 +92,136 @@ function Remove-SelControlChars {
     return ($Text -replace "[\x00-\x08\x0B\x0C\x0E-\x1F]", "")
 }
 
-function Read-SelTelnetAvailable {
+function Get-SelPlinkPath {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$OverridePath = $env:SELTOOLS_PLINK_PATH,
+        [Parameter(Mandatory = $false)]
+        [string]$RepoDefaultPath = (Join-Path (Get-SelRepoRoot) "tools\plink.exe")
+    )
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($OverridePath)) {
+        $candidates += [Environment]::ExpandEnvironmentVariables($OverridePath)
+    }
+    $candidates += [Environment]::ExpandEnvironmentVariables($RepoDefaultPath)
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-Path -Path $candidate -PathType Leaf) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+
+    throw ("plink.exe not found. Checked override='{0}' and default='{1}'." -f $OverridePath, $RepoDefaultPath)
+}
+
+function Start-SelPlinkSession {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Net.Sockets.NetworkStream]$Stream,
+        [string]$HostIp
+    )
+
+    $plinkPath = Get-SelPlinkPath
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $plinkPath
+    $psi.Arguments = ("-telnet -P 23 -batch {0}" -f $HostIp)
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    if (-not $process.Start()) {
+        throw ("Failed to start plink session for host {0}." -f $HostIp)
+    }
+
+    $process.StandardInput.NewLine = "`r`n"
+    return [pscustomobject]@{
+        Process = $process
+        StdIn = $process.StandardInput
+        StdOut = $process.StandardOutput
+        StdErr = $process.StandardError
+        HostIp = $HostIp
+        PlinkPath = $plinkPath
+    }
+}
+
+function Stop-SelPlinkSession {
+    param(
         [Parameter(Mandatory = $true)]
-        [byte[]]$Buffer,
+        [pscustomobject]$Session
+    )
+
+    try { $Session.StdIn.Close() } catch {}
+    try { $Session.StdOut.Close() } catch {}
+    try { $Session.StdErr.Close() } catch {}
+
+    if ($Session.Process) {
+        try {
+            if (-not $Session.Process.HasExited) {
+                $Session.Process.Kill()
+                [void]$Session.Process.WaitForExit(1000)
+            }
+        }
+        catch {}
+        finally {
+            try { $Session.Process.Dispose() } catch {}
+        }
+    }
+}
+
+function Read-SelSessionReaders {
+    param(
         [Parameter(Mandatory = $true)]
-        [System.Text.Encoding]$Encoding,
+        [System.IO.StreamReader]$StdOut,
+        [Parameter(Mandatory = $true)]
+        [System.IO.StreamReader]$StdErr,
+        [Parameter(Mandatory = $true)]
+        [System.Text.StringBuilder]$Accumulator
+    )
+
+    $didRead = $false
+    while ($StdOut.Peek() -ge 0) {
+        [void]$Accumulator.Append([char]$StdOut.Read())
+        $didRead = $true
+    }
+    while ($StdErr.Peek() -ge 0) {
+        [void]$Accumulator.Append([char]$StdErr.Read())
+        $didRead = $true
+    }
+    return $didRead
+}
+
+function Read-SelSessionAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Session,
         [int]$InitialWaitMs = 300
     )
 
     Start-Sleep -Milliseconds $InitialWaitMs
     $sb = New-Object System.Text.StringBuilder
 
-    while ($Stream.DataAvailable) {
-        $read = $Stream.Read($Buffer, 0, $Buffer.Length)
-        if ($read -le 0) {
+    for ($i = 0; $i -lt 20; $i++) {
+        $didRead = Read-SelSessionReaders -StdOut $Session.StdOut -StdErr $Session.StdErr -Accumulator $sb
+        if (-not $didRead) {
             break
         }
-        [void]$sb.Append($Encoding.GetString($Buffer, 0, $read))
         Start-Sleep -Milliseconds 40
     }
 
     return (Remove-SelControlChars -Text $sb.ToString())
 }
 
-function Read-SelTelnetUntil {
+function Read-SelSessionUntil {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Net.Sockets.NetworkStream]$Stream,
-        [Parameter(Mandatory = $true)]
-        [byte[]]$Buffer,
-        [Parameter(Mandatory = $true)]
-        [System.Text.Encoding]$Encoding,
+        [pscustomobject]$Session,
         [Parameter(Mandatory = $true)]
         [string]$Pattern,
         [int]$TimeoutMs = 6000
@@ -134,18 +230,14 @@ function Read-SelTelnetUntil {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $sb = New-Object System.Text.StringBuilder
     while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
-        while ($Stream.DataAvailable) {
-            $read = $Stream.Read($Buffer, 0, $Buffer.Length)
-            if ($read -le 0) {
-                break
-            }
-            [void]$sb.Append($Encoding.GetString($Buffer, 0, $read))
-            Start-Sleep -Milliseconds 30
-        }
-
+        $didRead = Read-SelSessionReaders -StdOut $Session.StdOut -StdErr $Session.StdErr -Accumulator $sb
         $clean = Remove-SelControlChars -Text $sb.ToString()
         if ($clean -match $Pattern) {
             return $clean
+        }
+
+        if ($Session.Process.HasExited -and -not $didRead) {
+            break
         }
 
         Start-Sleep -Milliseconds 80
@@ -154,12 +246,10 @@ function Read-SelTelnetUntil {
     return (Remove-SelControlChars -Text $sb.ToString())
 }
 
-function Send-SelTelnetLine {
+function Send-SelSessionLine {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Net.Sockets.NetworkStream]$Stream,
-        [Parameter(Mandatory = $true)]
-        [System.Text.Encoding]$Encoding,
+        [pscustomobject]$Session,
         [AllowNull()]
         [string]$Text
     )
@@ -168,9 +258,12 @@ function Send-SelTelnetLine {
         $Text = ""
     }
 
-    $bytes = $Encoding.GetBytes($Text + "`r`n")
-    $Stream.Write($bytes, 0, $bytes.Length)
-    $Stream.Flush()
+    if ($Session.Process.HasExited) {
+        throw ("Plink session exited before sending input (host={0})." -f $Session.HostIp)
+    }
+
+    $Session.StdIn.WriteLine($Text)
+    $Session.StdIn.Flush()
 }
 
 function Get-SelFirmwareLabelFromFid {
@@ -190,7 +283,7 @@ function Get-SelFirmwareLabelFromFid {
     return $Fid
 }
 
-function Parse-SelIdOutput {
+function ConvertFrom-SelIdOutput {
     param(
         [AllowNull()]
         [string]$Text
@@ -210,7 +303,7 @@ function Parse-SelIdOutput {
     return [pscustomobject]$result
 }
 
-function Parse-SelStaOutput {
+function ConvertFrom-SelStaOutput {
     param(
         [AllowNull()]
         [string]$Text
@@ -235,7 +328,7 @@ function Parse-SelStaOutput {
     }
 }
 
-function Parse-SelEthOutput {
+function ConvertFrom-SelEthOutput {
     param(
         [AllowNull()]
         [string]$Text
@@ -260,7 +353,7 @@ function Parse-SelEthOutput {
     }
 }
 
-function Invoke-SelTelnetInventoryCapture {
+function Invoke-SelPlinkInventoryCapture {
     param(
         [Parameter(Mandatory = $true)]
         [string]$HostIp,
@@ -269,31 +362,28 @@ function Invoke-SelTelnetInventoryCapture {
     )
 
     $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
-    $client = New-Object System.Net.Sockets.TcpClient($HostIp, 23)
-    $stream = $client.GetStream()
-    $enc = [System.Text.Encoding]::ASCII
-    $buf = New-Object byte[] 16384
+    $session = Start-SelPlinkSession -HostIp $HostIp
 
     try {
-        $banner = Read-SelTelnetAvailable -Stream $stream -Buffer $buf -Encoding $enc -InitialWaitMs 500
-        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text ""
-        $prompt = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+        $banner = Read-SelSessionAvailable -Session $session -InitialWaitMs 500
+        Send-SelSessionLine -Session $session -Text ""
+        $prompt = Read-SelSessionUntil -Session $session -Pattern $promptPattern
 
-        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ID"
-        $idOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+        Send-SelSessionLine -Session $session -Text "ID"
+        $idOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern
 
         $accOut = ""
         $accOk = $false
         $staOut = ""
         $ethOut = ""
 
-        Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ACC"
-        $accPrompt = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern "Password:|Invalid Access Level|Command Unavailable|$promptPattern"
+        Send-SelSessionLine -Session $session -Text "ACC"
+        $accPrompt = Read-SelSessionUntil -Session $session -Pattern "Password:|Invalid Access Level|Command Unavailable|$promptPattern"
 
         if ($accPrompt -match "Password:") {
             if (-not [string]::IsNullOrWhiteSpace($AccPassword)) {
-                Send-SelTelnetLine -Stream $stream -Encoding $enc -Text $AccPassword
-                $accResult = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+                Send-SelSessionLine -Session $session -Text $AccPassword
+                $accResult = Read-SelSessionUntil -Session $session -Pattern $promptPattern
                 $accOut = $accPrompt + "`n" + $accResult
                 if ($accResult -match "(?m)^\s*=>\s*$" -or $accResult -match "Level 1") {
                     $accOk = $true
@@ -311,10 +401,10 @@ function Invoke-SelTelnetInventoryCapture {
         }
 
         if ($accOk) {
-            Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "STA"
-            $staOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
-            Send-SelTelnetLine -Stream $stream -Encoding $enc -Text "ETH"
-            $ethOut = Read-SelTelnetUntil -Stream $stream -Buffer $buf -Encoding $enc -Pattern $promptPattern
+            Send-SelSessionLine -Session $session -Text "STA"
+            $staOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern
+            Send-SelSessionLine -Session $session -Text "ETH"
+            $ethOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern
         }
 
         return [pscustomobject]@{
@@ -328,8 +418,7 @@ function Invoke-SelTelnetInventoryCapture {
         }
     }
     finally {
-        try { $stream.Close() } catch {}
-        try { $client.Close() } catch {}
+        Stop-SelPlinkSession -Session $session
     }
 }
 
@@ -554,10 +643,10 @@ function Invoke-SelInventory {
         throw "HostIp is required for inventory when DefaultIP is not set."
     }
 
-    $capture = Invoke-SelTelnetInventoryCapture -HostIp $HostIp -AccPassword ([string]$defaults.ACCPassword)
-    $idParsed = Parse-SelIdOutput -Text $capture.ID
-    $staParsed = Parse-SelStaOutput -Text $capture.STA
-    $ethParsed = Parse-SelEthOutput -Text $capture.ETH
+    $capture = Invoke-SelPlinkInventoryCapture -HostIp $HostIp -AccPassword ([string]$defaults.ACCPassword)
+    $idParsed = ConvertFrom-SelIdOutput -Text $capture.ID
+    $staParsed = ConvertFrom-SelStaOutput -Text $capture.STA
+    $ethParsed = ConvertFrom-SelEthOutput -Text $capture.ETH
 
     $observedSerial = [string]$staParsed.Serial
     if (-not $observedSerial) {
@@ -663,14 +752,15 @@ function Invoke-SelFwUpgrade {
 }
 
 Export-ModuleMember -Function @(
+    "Get-SelPlinkPath",
     "Get-SelDefaultsRows",
     "Get-SelDefaults",
     "Get-SelDesiredStateRows",
     "Get-SelDesiredStateActiveRows",
     "Test-SelDesiredStateRowActive",
-    "Parse-SelIdOutput",
-    "Parse-SelStaOutput",
-    "Parse-SelEthOutput",
+    "ConvertFrom-SelIdOutput",
+    "ConvertFrom-SelStaOutput",
+    "ConvertFrom-SelEthOutput",
     "Resolve-SelReIpTarget",
     "Update-SelDesiredStateObserved",
     "Add-SelDeviceEvent",
