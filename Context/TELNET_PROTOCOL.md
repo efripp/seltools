@@ -111,17 +111,19 @@ Confirmed via transcript:
 | Command | Access |
 |------|------|
 | ID | Base |
-| STA | ACC |
+| SER | ACC |
 | ETH | ACC |
 
 Inventory sequence:
 
 ID  
 ACC  
-STA  
+SER  
 ETH
 
 If ACC fails, record **ID only**.
+
+Compatibility note: persisted inventory payloads may still include `STA` key for historical readers; current live capture command is `SER`.
 
 ---
 

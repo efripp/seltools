@@ -73,7 +73,7 @@
 **Consequence:** Defaults loader must resolve profile names and fail clearly when profile is missing.
 
 ## ADR-0013: Inventory command is live-first in v0.1
-**Decision:** `inventory` executes real Telnet capture (`ID` -> `ACC` -> `STA` -> `ETH`) and persists parsed outputs; it is no longer scaffold-only.
+**Decision:** `inventory` executes real Telnet capture (`ID` -> `ACC` -> `SER` -> `ETH`) and persists structured outputs; it is no longer scaffold-only.
 **Alternatives:** Keep scaffold inventory until all commands are implemented.
 **Reason:** Field validation against real SEL relays is needed early to de-risk parser and protocol assumptions.
 **Consequence:** Inventory events now include parsed protocol data and observed-state updates from live relay responses.
@@ -95,3 +95,27 @@
 **Alternatives:** Console-only ad hoc output or log-file-only tracing.
 **Reason:** Field troubleshooting needs immediate visibility into where Telnet/plink sessions stall.
 **Consequence:** Transport helpers include timeout-aware trace points and redacted TX logging for sensitive values.
+
+## ADR-0017: Inventory command sequence uses SER for identity capture
+**Decision:** Use `SER` (instead of `STA`) in inventory capture sequence after ACC escalation.
+**Alternatives:** Continue using `STA` for identity extraction.
+**Reason:** `STA` can stall or paginate on some relays, while `SER` reliably returns serial/FID/CID near the top of output.
+**Consequence:** Inventory sequence is now `ID -> ACC -> SER -> ETH`; serial parsing accepts both `Serial Num` and `Serial No`.
+
+## ADR-0018: End-of-run summary and metadata fields
+**Decision:** Emit an end-of-run summary and support `Name`/`Description` in both desired-state rows and per-device JSON.
+**Alternatives:** No run summary and serial-only metadata.
+**Reason:** Operators need a concise final report and human-friendly device labels in state/history artifacts.
+**Consequence:** `desiredstate.csv` now includes optional `Name`,`Description`; inventory events include identity metadata and device JSON maintains top-level `name`,`description`.
+
+## ADR-0019: SER event stream storage separation
+**Decision:** Store parsed SER event-stream data outside per-device inventory history in `data/events/<serial>/ser.jsonl` with raw archives in `data/events/<serial>/<timestamp>-ser.txt`.
+**Alternatives:** Keep raw SER payloads inside inventory events in `data/devices/<serial>.json`.
+**Reason:** SER event streams are high-volume operational telemetry and should not bloat configuration/history records.
+**Consequence:** Inventory events keep compatibility `inventory.STA` summary data; SER pull results are tracked via `ser-pull` summary events with `runId`, `eventStore`, and `rawArchive` references.
+
+## ADR-0020: Web launch and connect UX
+**Decision:** Inventory menu option 3 launches the local static web app; web UI uses `Connect to data` smart flow (saved handle first, picker fallback).
+**Alternatives:** Keep placeholder menu entry or always force folder picker.
+**Reason:** Reduce operator friction while respecting browser permission constraints.
+**Consequence:** First-time access still requires explicit folder grant; repeat access can reconnect in one click on same browser origin/profile. Selected folder is the data root (`/seltools/data`), and app paths are relative from that root.

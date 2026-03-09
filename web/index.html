@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SelTools Fleet Browser</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>SelTools Fleet Browser</h1>
+        <p class="subtitle">Local static app for fleet data browse/edit</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="connect-data-btn">Connect to data</button>
+        <button id="save-current-btn" disabled>Save Current</button>
+        <button id="revert-current-btn" disabled>Revert Current</button>
+      </div>
+    </header>
+
+    <div class="status-row">
+      <div id="status-pill" class="pill">Not connected to data yet</div>
+      <div id="status-message" class="status-message"></div>
+    </div>
+
+    <main class="main-grid">
+      <nav class="sidebar">
+        <button class="nav-btn active" data-view="fleet">Fleet Config Editor</button>
+        <button class="nav-btn" data-view="metadata">Device Metadata</button>
+        <button class="nav-btn" data-view="inventory">Inventory Browser (Read Only)</button>
+      </nav>
+
+      <section class="content">
+        <div id="alert-area"></div>
+
+        <section id="view-fleet" class="view active">
+          <div class="view-header">
+            <h2>Fleet Config Editor</h2>
+            <div class="inline-actions">
+              <button id="add-row-btn" disabled>Add Row</button>
+              <button id="delete-row-btn" disabled>Delete Row</button>
+            </div>
+          </div>
+          <div id="fleet-validation" class="hint"></div>
+          <div class="split">
+            <div class="panel">
+              <div class="table-wrap">
+                <table id="fleet-table"></table>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Selected Row Details</h3>
+              <div id="fleet-row-editor" class="form-grid"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-metadata" class="view">
+          <div class="view-header">
+            <h2>Device Metadata</h2>
+          </div>
+          <div class="split">
+            <div class="panel">
+              <h3>Devices</h3>
+              <ul id="device-list" class="list"></ul>
+            </div>
+            <div class="panel">
+              <h3>Metadata Editor</h3>
+              <div class="form-grid">
+                <label for="device-name">Name</label>
+                <input id="device-name" type="text">
+                <label for="device-description">Description</label>
+                <textarea id="device-description" rows="5"></textarea>
+              </div>
+              <h4>Events (read-only summary)</h4>
+              <pre id="device-events-summary" class="json-preview"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-inventory" class="view">
+          <div class="view-header">
+            <h2>Inventory Browser (Read Only)</h2>
+          </div>
+          <div class="split">
+            <div class="panel">
+              <h3>Devices</h3>
+              <ul id="inventory-device-list" class="list"></ul>
+              <h3>Events</h3>
+              <ul id="inventory-event-list" class="list"></ul>
+            </div>
+            <div class="panel">
+              <h3>Event Detail</h3>
+              <pre id="inventory-event-detail" class="json-preview"></pre>
+              <h3>Snapshot Diff</h3>
+              <div class="form-grid compact">
+                <label for="diff-base">Base</label>
+                <select id="diff-base"></select>
+                <label for="diff-target">Target</label>
+                <select id="diff-target"></select>
+              </div>
+              <ul id="inventory-diff-list" class="list"></ul>
+              <h3>SER Event Stream</h3>
+              <ul id="ser-event-list" class="list"></ul>
+              <h4>SER Event Detail</h4>
+              <pre id="ser-event-detail" class="json-preview"></pre>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

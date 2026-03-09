@@ -49,6 +49,14 @@ function Show-SelMenu {
     Write-Host "  5) exit"
 }
 
+function Show-SelInventorySubMenu {
+    Write-Host ""
+    Write-Host "Inventory Menu"
+    Write-Host "  1) Single IP scan"
+    Write-Host "  2) IP Range scan"
+    Write-Host "  3) Inventory Browser"
+}
+
 function Show-SelHelp {
     Write-Host ""
     Write-Host "Examples:"
@@ -56,6 +64,109 @@ function Show-SelHelp {
     Write-Host "  .\seltools.ps1 inventory -Serial 3241995707"
     Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1"
     Write-Host "  .\seltools.ps1 fwupgrade -Serial 3241995707 -HostIp 192.168.1.2"
+}
+
+function Start-SelInventoryBrowser {
+    param(
+        [int]$Port = 8080
+    )
+
+    $webDir = Join-Path $PSScriptRoot "web"
+    $hostScript = Join-Path $webDir "start-web.ps1"
+    if (-not (Test-Path -Path $hostScript -PathType Leaf)) {
+        throw ("Inventory Browser host script not found: {0}" -f $hostScript)
+    }
+
+    $url = "http://localhost:{0}/" -f $Port
+    $isUp = $false
+    try {
+        $probe = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
+        if ($probe.StatusCode -eq 200) {
+            $isUp = $true
+        }
+    }
+    catch {
+        $isUp = $false
+    }
+
+    if (-not $isUp) {
+        Start-Process -FilePath "powershell" -ArgumentList ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Port {1}" -f $hostScript, $Port) -WorkingDirectory $webDir -WindowStyle Minimized | Out-Null
+        Start-Sleep -Milliseconds 1200
+    }
+
+    $chromePath = Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+    $chromePathX86 = Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"
+    $edgePath = Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"
+    $edgePathX86 = Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
+
+    $browserPath = $null
+    foreach ($candidate in @($chromePath, $chromePathX86, $edgePath, $edgePathX86)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -Path $candidate -PathType Leaf)) {
+            $browserPath = $candidate
+            break
+        }
+    }
+
+    if ($browserPath) {
+        Start-Process -FilePath $browserPath -ArgumentList $url | Out-Null
+        Write-Host ("Inventory Browser opened in Chromium browser: {0}" -f $url)
+        Write-Host "In the web app, click Connect to data and browse to /seltools/data."
+    }
+    else {
+        Start-Process $url | Out-Null
+        Write-Warning ("No Chrome/Edge executable found. Open this URL in Chrome or Edge: {0}" -f $url)
+        Write-Host "In the web app, click Connect to data and browse to /seltools/data."
+    }
+}
+
+function Stop-SelInventoryBrowserService {
+    $stopped = 0
+    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match "powershell" -and $_.CommandLine -match "start-web\.ps1"
+    }
+
+    foreach ($proc in @($processes)) {
+        try {
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+            $stopped++
+        }
+        catch {}
+    }
+
+    return $stopped
+}
+
+function Show-SelInventoryBrowserExitMenu {
+    param(
+        [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
+    )
+
+    while ($true) {
+        Write-Host ""
+        Write-Host "Inventory Browser Service"
+        Write-Host "  1) Stop the web service"
+        Write-Host "  2) Leave it running and return to main menu"
+        $choice = (& $ReadInput "Select an option (1-2)")
+        switch ($choice) {
+            "1" {
+                $stoppedCount = Stop-SelInventoryBrowserService
+                if ($stoppedCount -gt 0) {
+                    Write-Host ("Stopped {0} web service process(es)." -f $stoppedCount)
+                }
+                else {
+                    Write-Host "Web service is not running."
+                }
+                return
+            }
+            "2" {
+                Write-Host "Leaving Inventory Browser web service running."
+                return
+            }
+            default {
+                Write-Host ("Invalid selection '{0}'. Choose 1-2." -f $choice)
+            }
+        }
+    }
 }
 
 function Resolve-SelMenuHostIpDefault {
@@ -162,18 +273,40 @@ function Start-SelInteractiveMenu {
 
         switch ($choice) {
             "1" {
-                $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
-                $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
-                $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
-                $Serial = Get-SelPromptValue -Label "Serial (optional lookup when Host IP is blank)" -CurrentValue $Serial -ReadInput $ReadInput
-                try {
-                    $result = Invoke-SelDispatch -CommandName "inventory" -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru
-                    if ($null -ne $result) {
-                        $runResults += $result
+                Show-SelInventorySubMenu
+                $inventoryChoice = (& $ReadInput "Select an inventory option (1-3)")
+
+                switch ($inventoryChoice) {
+                    "1" {
+                        $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
+                        $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
+                        $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
+                        $Serial = Get-SelPromptValue -Label "Serial (optional lookup when Host IP is blank)" -CurrentValue $Serial -ReadInput $ReadInput
+                        try {
+                            $result = Invoke-SelDispatch -CommandName "inventory" -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+                            if ($null -ne $result) {
+                                $runResults += $result
+                            }
+                        }
+                        catch {
+                            Write-Host ("Inventory failed: {0}" -f $_.Exception.Message)
+                        }
                     }
-                }
-                catch {
-                    Write-Host ("Inventory failed: {0}" -f $_.Exception.Message)
+                    "2" {
+                        Write-Host "IP Range scan is not implemented yet."
+                    }
+                    "3" {
+                        try {
+                            Start-SelInventoryBrowser
+                            Show-SelInventoryBrowserExitMenu -ReadInput $ReadInput
+                        }
+                        catch {
+                            Write-Host ("Inventory Browser failed: {0}" -f $_.Exception.Message)
+                        }
+                    }
+                    default {
+                        Write-Host ("Invalid inventory selection '{0}'. Choose 1-3." -f $inventoryChoice)
+                    }
                 }
             }
             "2" {

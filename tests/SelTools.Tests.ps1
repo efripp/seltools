@@ -7,16 +7,56 @@ Describe "Desired state filtering" {
     It "ignores TEMPLATE, blank serial, and inactive rows" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
-TEMPLATE,FALSE,,192.168.1.200,255.255.255.0,192.168.1.1,,,,,,,,
-,TRUE,,192.168.1.201,255.255.255.0,192.168.1.1,,,,,,,,
-3333333333,FALSE,,192.168.1.202,255.255.255.0,192.168.1.1,,,,,,,,
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+TEMPLATE,FALSE,,,,192.168.1.200,255.255.255.0,192.168.1.1,,,,,,,,
+,TRUE,,,,192.168.1.201,255.255.255.0,192.168.1.1,,,,,,,,
+3333333333,FALSE,,,,192.168.1.202,255.255.255.0,192.168.1.1,,,,,,,,
 '@ | Set-Content $tmp
 
         $rows = @(Get-SelDesiredStateActiveRows -Path $tmp)
         $rows.Count | Should Be 1
         $rows[0].Serial | Should Be "3241995707"
+    }
+
+    It "reads name/description metadata by serial" {
+        $tmp = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+'@ | Set-Content $tmp
+
+        $meta = Get-SelDesiredStateMetadata -Serial "3241995707" -DesiredStatePath $tmp
+        $meta.Name | Should Be "Feeder 751"
+        $meta.Description | Should Be "Primary feeder relay"
+    }
+
+    It "resolves metadata preferring desiredstate and filling blanks from device json" {
+        $desired = [pscustomobject]@{
+            Name = ""
+            Description = "From desiredstate"
+        }
+        $device = [pscustomobject]@{
+            Name = "From json"
+            Description = "From json"
+        }
+
+        $resolved = Resolve-SelMetadata -DesiredStateMetadata $desired -DeviceMetadata $device
+        $resolved.Name | Should Be "From json"
+        $resolved.Description | Should Be "From desiredstate"
+    }
+
+    It "updates desiredstate name/description on observed update when provided" {
+        $tmp = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,,,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+'@ | Set-Content $tmp
+
+        Update-SelDesiredStateObserved -Serial "3241995707" -Name "Feeder 751" -Description "Primary feeder relay" -DesiredStatePath $tmp
+        $rows = @(Import-Csv -Path $tmp)
+        $rows[0].Name | Should Be "Feeder 751"
+        $rows[0].Description | Should Be "Primary feeder relay"
     }
 }
 
@@ -70,8 +110,8 @@ Describe "ReIP precedence" {
     It "prefers CLI values over desiredstate.csv" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
 '@ | Set-Content $tmp
 
         $result = Resolve-SelReIpTarget -Serial "3241995707" -Ip "10.1.2.3" -Mask "255.255.255.0" -Gateway "10.1.2.1" -DesiredStatePath $tmp
@@ -83,8 +123,8 @@ Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabe
     It "falls back to desiredstate.csv when CLI values are missing" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
 '@ | Set-Content $tmp
 
         $result = Resolve-SelReIpTarget -Serial "3241995707" -DesiredStatePath $tmp
@@ -186,8 +226,8 @@ Describe "Inventory host resolution" {
 
         $desired = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,192.168.1.10,SEL-751-R401,SEL-751-R401-V0,2026-03-08T08:40:00,inventory,success,Example relay
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,192.168.1.10,SEL-751-R401,SEL-751-R401-V0,2026-03-08T08:40:00,inventory,success,Example relay
 '@ | Set-Content $desired
 
         $script:choiceQueue = @("2")
@@ -206,5 +246,42 @@ Serial,Active,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabe
         $resolved = Resolve-SelInventoryHostIp -Serial "3241995707" -DevicesDirectory $devicesDir -DesiredStatePath $desired -ReadInput $readInput
         $resolved.HostIp | Should Be "192.168.1.10"
         $resolved.Source | Should Be "desiredstate"
+    }
+}
+
+Describe "SER event storage" {
+    It "parses SER lines and filters transport noise" {
+        $serText = @'
+TERMINAL SERVER
+=SER
+SEL-751                                  Date: 03/08/2026   Time: 09:22:33.965
+FEEDER RELAY                             Time Source: Internal
+03/08/2026 09:22:40.000 BREAKER OPEN ASSERTED
+03/08/2026 09:22:41.000 BREAKER OPEN DEASSERTED
+=>
+'@
+        $records = @(ConvertFrom-SelSerEventRecords -Text $serText -Serial "3241995707" -RunId "20260308-120000" -RawArchivePath "data/events/3241995707/2026-03-08T12-00-00-ser.txt")
+        $records.Count | Should Be 2
+        $records[0].event | Should Be "BREAKER OPEN ASSERTED"
+        $records[1].state | Should Be "DEASSERTED"
+    }
+
+    It "writes only new events on repeated SER pulls" {
+        $eventsRoot = Join-Path $TestDrive "events"
+        New-Item -ItemType Directory -Path $eventsRoot -Force | Out-Null
+        $raw = @'
+03/08/2026 09:22:40.000 BREAKER OPEN ASSERTED
+03/08/2026 09:22:41.000 BREAKER OPEN DEASSERTED
+'@
+
+        $first = Write-SelSerEventStore -Serial "3241995707" -RawSerText $raw -RunId "20260308-120000" -EventsRoot $eventsRoot
+        $second = Write-SelSerEventStore -Serial "3241995707" -RawSerText $raw -RunId "20260308-120500" -EventsRoot $eventsRoot
+
+        $first.EntriesAdded | Should Be 2
+        $second.EntriesAdded | Should Be 0
+
+        $serPath = Join-Path $eventsRoot "3241995707\ser.jsonl"
+        $lines = @(Get-Content -Path $serPath)
+        $lines.Count | Should Be 2
     }
 }

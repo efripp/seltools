@@ -76,7 +76,7 @@ Describe "CLI helper behavior" {
         Mock Invoke-SelDispatch { throw "forced failure" }
 
         $inputs = New-Object 'System.Collections.Generic.Queue[string]'
-        @("1", "", "", "", "5") | ForEach-Object { $inputs.Enqueue($_) }
+        @("1", "1", "", "", "", "5") | ForEach-Object { $inputs.Enqueue($_) }
         $readInput = {
             param([string]$Prompt)
             if ($inputs.Count -gt 0) {
@@ -86,5 +86,49 @@ Describe "CLI helper behavior" {
         }
 
         { Start-SelInteractiveMenu -ReadInput $readInput } | Should Not Throw
+    }
+
+    It "Start-SelInteractiveMenu inventory option 3 can leave browser service running" {
+        Mock Start-SelInventoryBrowser { }
+        Mock Stop-SelInventoryBrowserService { 0 }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("1", "3", "2", "5") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            if ($inputs.Count -gt 0) {
+                return $inputs.Dequeue()
+            }
+            return "5"
+        }
+
+        { Start-SelInteractiveMenu -ReadInput $readInput } | Should Not Throw
+        Assert-MockCalled Start-SelInventoryBrowser -Times 1 -Exactly
+        Assert-MockCalled Stop-SelInventoryBrowserService -Times 0
+    }
+
+    It "Inventory browser exit menu can stop browser service" {
+        Mock Stop-SelInventoryBrowserService { 1 }
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("1") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            return $inputs.Dequeue()
+        }
+
+        { Show-SelInventoryBrowserExitMenu -ReadInput $readInput } | Should Not Throw
+    }
+
+    It "Inventory browser exit menu re-prompts on invalid selection" {
+        Mock Stop-SelInventoryBrowserService { 0 }
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("x", "2") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            return $inputs.Dequeue()
+        }
+
+        { Show-SelInventoryBrowserExitMenu -ReadInput $readInput } | Should Not Throw
+        Assert-MockCalled Stop-SelInventoryBrowserService -Times 0
     }
 }

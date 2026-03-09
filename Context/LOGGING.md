@@ -79,7 +79,7 @@ Minimum categories:
   FTP connection, file upload/download, status codes, disconnects.
 
 - `PARSE`  
-  Parsed values extracted from `ID`, `STA`, `ETH`, and other command outputs.
+  Parsed values extracted from `ID`, `SER`/`STA` compatibility fields, `ETH`, and other command outputs.
 
 - `STATE`  
   High-level workflow events such as inventory started, re-IP started, re-IP complete, firmware upgrade started, firmware upgrade verified.

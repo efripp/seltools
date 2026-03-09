@@ -22,10 +22,11 @@
 ## Architecture decisions
 - Single CLI entry script `seltools.ps1` over a reusable PowerShell module.
 - Bundled `tools/plink.exe` process transport for Telnet and built-in `FtpWebRequest` for FTP.
-- Prompt-driven Telnet automation using read-until prompt matching.
+- Prompt-driven Telnet automation with best-effort capture fallback for long/partial command outputs.
 - Menu-driven interactive CLI is shown when `seltools.ps1` runs without `-Command`.
 - Serial is authoritative identity; MAC is advisory only.
 - Runtime target: Windows PowerShell 5.1.
+- Local static web app under `web/` for browsing/editing data via File System Access API.
 
 ## Input and persistence policy
 - Credentials source policy:
@@ -38,8 +39,15 @@
   3. Interactive prompt
 - Inventory persistence:
   - Append structured event to `data/devices/<serial>.json`
+  - Maintain top-level device metadata in JSON: `name`, `description`
+  - Include inventory payload compatibility field `STA` summary (no raw `inventory.SER` payload)
+  - Append SER pull summary events (`action=ser-pull`) with references to event store + raw archive
+  - Store SER event stream separately in:
+    - `data/events/<serial>/ser.jsonl`
+    - `data/events/<serial>/<timestamp>-ser.txt`
   - Update observed fields in `desiredstate.csv`
   - If serial is missing in CSV, append a new row with observed values
+  - `desiredstate.csv` includes optional metadata columns: `Name`, `Description`
 - Inventory host resolution precedence:
   1. CLI `-HostIp`
   2. If `-Serial` is provided and `-HostIp` is missing:
@@ -70,7 +78,7 @@
 - If confirmed, all fields may be written, including password fields.
 
 ## Definition of done (v0.1)
-- `seltools.ps1 inventory` captures ID/STA/ETH (or ID-only fallback) and persists JSON plus observed CSV state.
+- `seltools.ps1 inventory` captures ID/ACC/SER/ETH and persists JSON plus observed CSV state.
 - `seltools.ps1 reip` applies IP/mask/gateway via `SET P 1`, reconnects, and verifies identity behavior.
 - `seltools.ps1 fwupgrade` exists as a stub with explicit `NotImplemented` output.
 - Commands support interactive prompts and no-arg menu operation.
@@ -80,10 +88,24 @@
 - Implemented:
   - Profile-based defaults selection (`-Profile`, default `factory`)
   - Plink transport for Telnet session handling (`tools/plink.exe` with `SELTOOLS_PLINK_PATH` override)
-  - Live inventory Telnet flow (`ID`, `ACC`, `STA`, `ETH`)
+  - Live inventory Telnet flow (`ID`, `ACC`, `SER`, `ETH`)
   - Parsing of ID/STA/ETH fields and persistence to:
     - `data/devices/<serial>.json`
     - observed columns in `data/desiredstate.csv`
+  - SER event stream persistence to `data/events/<serial>/ser.jsonl` with raw archives in `data/events/<serial>/`
   - Menu-driven no-arg CLI (`inventory|reip|fwupgrade|help|exit`) with guided prompts and value prefills
+  - Inventory sub-menu (`Single IP scan`, `IP Range scan` placeholder, `Inventory Browser` launcher)
+  - End-of-run report with:
+    - new devices discovered
+    - existing devices with detected changes
+    - explicit `No changes detected.` line when none are found
+  - Name/Description metadata support in desired state and per-device JSON
+  - Metadata sync on inventory so Name/Description are carried in both desiredstate and per-device JSON
+  - Static browser app (`web/`) with:
+    - smart `Connect to data` flow (saved handle first, picker fallback)
+    - operators browse to `/seltools/data` (data root containing `desiredstate.csv` and `devices/`)
+    - desiredstate editing + device metadata editing
+    - read-only inventory browser view
+    - SER event stream browser for `data/events/<serial>/ser.jsonl`
 - Current next target:
   - Implement live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.
