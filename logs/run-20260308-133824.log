@@ -1,0 +1,56 @@
+2026-03-08T13:38:24 [TRACE] inventory start serial= hostIp=192.168.1.2 profile=factory
+2026-03-08T13:38:24 [TRACE] inventory hostIp final=192.168.1.2 source=cli
+2026-03-08T13:38:24 [TRACE] PLINK start host=192.168.1.2 path=C:\Users\eli\documents\seltools\tools\plink.exe args="-telnet -P 23 192.168.1.2"
+2026-03-08T13:38:24 [TRACE] WAIT available start initialWaitMs=500
+2026-03-08T13:38:24 [TRACE] RX stdout "TERMINAL SERVER\r\n"
+2026-03-08T13:38:24 [TRACE] RX chars stdout=19 stderr=0
+2026-03-08T13:38:24 [TRACE] WAIT available done chars=17
+2026-03-08T13:38:24 [TRACE] TX ""
+2026-03-08T13:38:24 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T13:38:24 [TRACE] RX stdout "\r\n"
+2026-03-08T13:38:24 [TRACE] RX chars stdout=2 stderr=0
+2026-03-08T13:38:25 [TRACE] RX stdout "\r\n="
+2026-03-08T13:38:25 [TRACE] RX chars stdout=5 stderr=0
+2026-03-08T13:38:25 [TRACE] WAIT until matched elapsedMs=105
+2026-03-08T13:38:25 [TRACE] TX "ID"
+2026-03-08T13:38:25 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T13:38:25 [TRACE] RX stdout "ID\r\n"
+2026-03-08T13:38:25 [TRACE] RX stdout "\r\n"FID=SEL-751-R401-V0-Z101100-D20240308","08A3"\r\n"BFID=SLBTIND-R101-V0-Z000000-D20230609","0944"\r\n"CID=1D4A","0267"\r\n"DEVID=SEL-751","03C7"\r\n"DEVCODE=77","0315"\r\n"PARTNO=751001A1A4A0X851G10","06A5"\r\n"CONFIG=111112010","041B"..."
+2026-03-08T13:38:25 [TRACE] RX chars stdout=361 stderr=0
+2026-03-08T13:38:25 [TRACE] WAIT until matched elapsedMs=106
+2026-03-08T13:38:25 [TRACE] TX "ACC"
+2026-03-08T13:38:25 [TRACE] WAIT until start pattern=Password:|Invalid Access Level|Command Unavailable|(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T13:38:25 [TRACE] RX stdout "ACC\r\n"
+2026-03-08T13:38:25 [TRACE] RX stdout "Password: ? "
+2026-03-08T13:38:25 [TRACE] RX chars stdout=18 stderr=0
+2026-03-08T13:38:25 [TRACE] WAIT until matched elapsedMs=96
+2026-03-08T13:38:25 [TRACE] TX "<REDACTED_PASSWORD>"
+2026-03-08T13:38:25 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T13:38:25 [TRACE] RX stdout "*****\r\n"
+2026-03-08T13:38:25 [TRACE] RX chars stdout=7 stderr=0
+2026-03-08T13:38:25 [TRACE] RX stdout "\r\nSEL-751                                  Date: 03/08/2026   Time: 10:38:17.206\r\nFEEDER RELAY                             Time Source: Internal\r\n\r\nLevel 1\r\n\r\n=>"
+2026-03-08T13:38:25 [TRACE] RX chars stdout=164 stderr=0
+2026-03-08T13:38:25 [TRACE] WAIT until matched elapsedMs=94
+2026-03-08T13:38:25 [TRACE] TX "SER"
+2026-03-08T13:38:25 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=15000
+2026-03-08T13:38:25 [TRACE] RX stdout "SER\r\n"
+2026-03-08T13:38:25 [TRACE] RX chars stdout=5 stderr=0
+2026-03-08T13:38:25 [TRACE] RX stdout "\r\nSEL-751                                  Date: 03/08/2026   Time: 10:38:17.314\r\nFEEDER RELAY                             Time Source: Internal\r\n\r\nSerial No = 3241995707      FID = SEL-751-R401-V0-Z101100-D20240308\r\nCID = 1D4A\r..."
+2026-03-08T13:38:25 [TRACE] RX stdout "              Deasserted\r\n62  03/20/2025  05:05:54.403   IN101                      Asserted\r\n61  03/20/2025  05:05:56.123   IN101                      Deasserted\r\n60  03/20/2025  05:05:57.254   IN101                      Asserted\r\n..."
+2026-03-08T13:38:25 [TRACE] RX stdout "03/20/2025  05:06:04.200   IN101                      Deasserted\r\n54  03/20/2025  05:06:05.321   IN101                      Asserted\r\n53  03/20/2025  05:06:06.933   IN101                      Deasserted\r\n52  03/20/2025  05:06:08.271  ..."
+2026-03-08T13:38:25 [TRACE] RX stdout "ARM                     Deasserted\r\n47  03/20/2025  05:11:01.867   IN101                      Deasserted\r\n46  03/20/2025  05:11:14.623   IN101                      Asserted\r\n45  03/20/2025  05:11:16.768   IN101                      De..."
+2026-03-08T13:38:25 [TRACE] RX stdout "serted\r\n40  03/20/2025  05:15:39.307   IN101                      Asserted\r\n39  03/20/2025  05:21:52.043   IN101                      Deasserted\r\n38  08/28/2025  08:25:49.032   Relay Powered Up\r\n37  08/28/2025  08:25:50.199   IN101 ..."
+2026-03-08T13:38:25 [TRACE] RX stdout "red Up\r\n32  08/28/2025  08:39:14.199   IN101                      Asserted\r\n31  08/28/2025  09:01:31.954   IN101                      Deasserted\r\n30  08/28/2025  09:11:30.032   Relay Powered Up\r\n29  08/28/2025  09:11:31.199   IN101 ..."
+2026-03-08T13:38:25 [TRACE] RX stdout "serted\r\n24  01/18/2026  09:19:05.032   Relay Powered Up\r\n23  01/18/2026  09:20:04.575   SALARM                     Asserted\r\n22  01/18/2026  09:20:05.575   SALARM                     Deasserted\r\n21  03/02/2026  17:15:56.032   Relay ..."
+2026-03-08T13:38:25 [TRACE] RX stdout "serted\r\n16  03/02/2026  18:42:22.324   SALARM                     Asserted\r\n15  03/02/2026  18:42:23.324   SALARM                     Deasserted\r\n14  03/03/2026  07:26:59.032   Relay Powered Up\r\n13  03/03/2026  08:25:44.868   SALARM..."
+2026-03-08T13:38:25 [TRACE] RX stdout "serted\r\n8   03/04/2026  14:59:17.032   Relay Powered Up\r\n7   03/04/2026  18:12:56.536   SALARM                     Asserted\r\n6   03/04/2026  18:12:57.536   SALARM                     Deasserted\r\n5   03/05/2026  09:33:01.032   Relay ..."
+2026-03-08T13:38:25 [TRACE] RX chars stdout=4583 stderr=0
+2026-03-08T13:38:25 [TRACE] WAIT until matched elapsedMs=129
+2026-03-08T13:38:25 [TRACE] TX "ETH"
+2026-03-08T13:38:25 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=5000
+2026-03-08T13:38:25 [TRACE] RX stdout "ETH\r\n"
+2026-03-08T13:38:25 [TRACE] RX stdout "\r\nSEL-751                                  Date: 03/08/2026   Time: 10:38:17.454\r\nFEEDER RELAY                             Time Source: Internal\r\n\r\nNETMODE: FAILOVER\r\n\r\nPRIMARY PORT:  1A\r\nACTIVE PORT:   1A\r\n\r\n            ..."
+2026-03-08T13:38:25 [TRACE] RX chars stdout=517 stderr=0
+2026-03-08T13:38:30 [TRACE] WAIT until timeout elapsedMs=5076 chars=516 tail="    --     FX\r\n\r\n\r\nMAC: 00-30-A7-3D-6F-A9\r\nIP ADDRESS: 192.168.1.2\r\nSUBNET MASK: 255.255.255.0\r\nDEFAULT GATEWAY: 192.168.1.1\r\n\r\n         PACKETS                 BYTES              ERRORS\r\n      SENT  " stderr=""
+2026-03-08T13:38:31 [TRACE] inventory observed serial=3241995707
+2026-03-08T13:38:31 [TRACE] inventory persistence complete serial=3241995707 observedIp=192.168.1.2 status=success

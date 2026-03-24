@@ -105,14 +105,18 @@ Example output:
   SUBNET MASK       Network mask           Logged
   DEFAULT GATEWAY   Gateway                Logged
 
-Additional informational fields may include:
+Port 1 interface fields are parsed and normalized:
 
--   NETMODE
--   PRIMARY PORT
--   ACTIVE PORT
--   PORT LINK STATUS
+-   `NETMODE`
+-   `PRIMARY PORT` (status uses `1A`/`1B`)
+-   `ACTIVE PORT` (status uses `1A`/`1B`)
+-   per-interface rows: `PORT 1A`, `PORT 1B`
 
-These may be logged but do not need parsing initially.
+Normalization rules:
+
+-   `SET P 1` is Port 1 Ethernet group scope.
+-   `NETPORT := A|B` maps to `primaryInterface := 1A|1B`.
+-   Runtime fields from `ETH` remain separate from configured selector values.
 
 ------------------------------------------------------------------------
 
@@ -152,10 +156,28 @@ Example structure:
       "PARTNUM": "751001A1A4A0X851G10"
     },
     "ETH": {
-      "mac": "00-30-A7-3D-6F-A9",
-      "ip": "192.168.1.2",
-      "mask": "255.255.255.0",
-      "gateway": "192.168.1.1"
+      "MAC": "00-30-A7-3D-6F-A9",
+      "IP": "192.168.1.2",
+      "Mask": "255.255.255.0",
+      "Gateway": "192.168.1.1",
+      "NetMode": "FAILOVER",
+      "PrimaryInterface": "1A",
+      "ActiveInterface": "1A",
+      "ConfiguredPrimarySelector": "A"
+    },
+    "Ethernet": {
+      "portGroup": "1",
+      "interfaces": ["1A", "1B"],
+      "primaryInterface": "1A",
+      "activeInterface": "1A",
+      "configuredPrimarySelector": "A",
+      "netMode": "FAILOVER",
+      "interfaceStatus": {
+        "1A": {"Raw": "Up 100 Full Copper", "LinkStatus": "UP"},
+        "1B": {"Raw": "Down", "LinkStatus": "DOWN"}
+      },
+      "primaryPort": "A",
+      "activePort": "A"
     }
   }
 }
@@ -172,6 +194,11 @@ Recommended regex patterns:
     IP ADDRESS:\s*(\d+\.\d+\.\d+\.\d+)
     SUBNET MASK:\s*(\d+\.\d+\.\d+\.\d+)
     DEFAULT GATEWAY:\s*(\d+\.\d+\.\d+\.\d+)
+    NETMODE:\s*([A-Za-z0-9\-_]+)
+    PRIMARY PORT:\s*([1]?[AB])
+    ACTIVE PORT:\s*([1]?[AB])
+    PORT\s*1A[:\s]*(.*)
+    PORT\s*1B[:\s]*(.*)
 
 ------------------------------------------------------------------------
 

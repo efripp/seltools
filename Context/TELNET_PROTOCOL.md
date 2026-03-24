@@ -131,6 +131,13 @@ Compatibility note: persisted inventory payloads may still include `STA` key for
 
 Commands such as `SET P 1` enter an interactive configuration dialog.
 
+Port/interface terminology for SEL-751:
+
+- `SET P 1` configures **Port 1** (Ethernet group scope).
+- Physical interfaces under Port 1 are **Port 1A** and **Port 1B**.
+- Config dialog fields use selector values `A`/`B` (for example `NETPORT := A`).
+- Status output (`ETH`) reports `1A`/`1B` values (for example `PRIMARY PORT: 1A`).
+
 The tool should detect field prompts containing `:=` and ending with `?`.
 
 Example:
@@ -157,6 +164,21 @@ Optional fields:
 |------|------|
 | `EETHFWU` | Enable Ethernet firmware upgrade |
 | `MAXACC` | Maximum Telnet access level |
+| `NETMODE` | Ethernet mode (`FIXED`/`FAILOVER`/`SWITCHED`/`PRP` etc.) |
+| `NETPORT` | Configured primary interface selector (`A` or `B`) |
+
+Interface gotchas:
+
+- `SET P 1` alone does not choose A/B.
+- `NETPORT` determines configured primary side.
+- `ETH` reflects runtime state; `ACTIVE PORT` can differ from configured primary during failover.
+
+Scripting guidance:
+
+1. Use `ETH` to read runtime interface state (`PRIMARY PORT`, `ACTIVE PORT`, `PORT 1A`, `PORT 1B`).
+2. Use `SET P 1` to configure Ethernet group fields.
+3. Use `NETPORT` to select preferred primary side.
+4. Preserve configured and runtime interface values as separate fields in persistence.
 
 ---
 

@@ -522,6 +522,74 @@ function ConvertFrom-SelStaOutput {
     }
 }
 
+function ConvertTo-SelPrimaryInterface {
+    param(
+        [AllowNull()]
+        [string]$Selector
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Selector)) {
+        return ""
+    }
+
+    switch ($Selector.Trim().ToUpperInvariant()) {
+        "A" { return "1A" }
+        "B" { return "1B" }
+        "1A" { return "1A" }
+        "1B" { return "1B" }
+        default { return "" }
+    }
+}
+
+function ConvertTo-SelNetPortSelector {
+    param(
+        [AllowNull()]
+        [string]$Interface
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Interface)) {
+        return ""
+    }
+
+    switch ($Interface.Trim().ToUpperInvariant()) {
+        "A" { return "A" }
+        "B" { return "B" }
+        "1A" { return "A" }
+        "1B" { return "B" }
+        default { return "" }
+    }
+}
+
+function Get-SelEthInterfaceStatus {
+    param(
+        [AllowNull()]
+        [string]$PortLineSuffix
+    )
+
+    $raw = ""
+    if ($null -ne $PortLineSuffix) {
+        $raw = $PortLineSuffix.Trim()
+    }
+
+    $linkStatus = ""
+    $speed = ""
+    $duplex = ""
+    $media = ""
+
+    if ($raw -match "(?i)\b(UP|DOWN)\b") { $linkStatus = $Matches[1].ToUpperInvariant() }
+    if ($raw -match "(?i)\b(10|100|1000|10/100|100/1000|1G|10G)\b") { $speed = $Matches[1].ToUpperInvariant() }
+    if ($raw -match "(?i)\b(HALF|FULL)\b") { $duplex = $Matches[1].ToUpperInvariant() }
+    if ($raw -match "(?i)\b(COPPER|FIBER|RJ45|SFP|OPTICAL)\b") { $media = $Matches[1].ToUpperInvariant() }
+
+    return [pscustomobject]@{
+        Raw = $raw
+        LinkStatus = $linkStatus
+        Speed = $speed
+        Duplex = $duplex
+        Media = $media
+    }
+}
+
 function ConvertFrom-SelEthOutput {
     param(
         [AllowNull()]
@@ -533,17 +601,98 @@ function ConvertFrom-SelEthOutput {
     $ip = ""
     $mask = ""
     $gateway = ""
+    $netMode = ""
+    $primaryPortDisplay = ""
+    $activePortDisplay = ""
+    $port1ALine = ""
+    $port1BLine = ""
 
     if ($clean -match "MAC:\s*([0-9A-Fa-f\-]+)") { $mac = $Matches[1].ToUpperInvariant() }
     if ($clean -match "IP ADDRESS:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $ip = $Matches[1] }
     if ($clean -match "SUBNET MASK:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $mask = $Matches[1] }
     if ($clean -match "DEFAULT GATEWAY:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") { $gateway = $Matches[1] }
+    if ($clean -match "(?im)^\s*NETMODE:\s*([A-Za-z0-9\-_]+)\s*$") { $netMode = $Matches[1].ToUpperInvariant() }
+    if ($clean -match "(?im)^\s*PRIMARY PORT:\s*([1]?[AB])\s*$") { $primaryPortDisplay = $Matches[1].ToUpperInvariant() }
+    if ($clean -match "(?im)^\s*ACTIVE PORT:\s*([1]?[AB])\s*$") { $activePortDisplay = $Matches[1].ToUpperInvariant() }
+    if ($clean -match "(?im)^\s*PORT\s*1A\b[:\s]*(.*)$") { $port1ALine = $Matches[1] }
+    if ($clean -match "(?im)^\s*PORT\s*1B\b[:\s]*(.*)$") { $port1BLine = $Matches[1] }
+
+    $primaryInterface = ConvertTo-SelPrimaryInterface -Selector $primaryPortDisplay
+    $activeInterface = ConvertTo-SelPrimaryInterface -Selector $activePortDisplay
+    $configuredPrimarySelector = ConvertTo-SelNetPortSelector -Interface $primaryInterface
 
     return [pscustomobject]@{
         MAC = $mac
         IP = $ip
         Mask = $mask
         Gateway = $gateway
+        NetMode = $netMode
+        PrimaryPortDisplay = $primaryPortDisplay
+        ActivePortDisplay = $activePortDisplay
+        PrimaryInterface = $primaryInterface
+        ActiveInterface = $activeInterface
+        ConfiguredPrimarySelector = $configuredPrimarySelector
+        PrimaryPort = $configuredPrimarySelector
+        ActivePort = (ConvertTo-SelNetPortSelector -Interface $activeInterface)
+        Port1A = (Get-SelEthInterfaceStatus -PortLineSuffix $port1ALine)
+        Port1B = (Get-SelEthInterfaceStatus -PortLineSuffix $port1BLine)
+    }
+}
+
+function Get-SelEthernetModelFromEthParsed {
+    param(
+        [AllowNull()]
+        [pscustomobject]$EthParsed
+    )
+
+    $primaryInterface = ""
+    $activeInterface = ""
+    $netMode = ""
+    $configuredPrimarySelector = ""
+    $port1A = Get-SelEthInterfaceStatus -PortLineSuffix ""
+    $port1B = Get-SelEthInterfaceStatus -PortLineSuffix ""
+
+    if ($EthParsed) {
+        $primaryInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.PrimaryInterface)
+        if ([string]::IsNullOrWhiteSpace($primaryInterface)) {
+            $primaryInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.PrimaryPortDisplay)
+        }
+        if ([string]::IsNullOrWhiteSpace($primaryInterface)) {
+            $primaryInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.PrimaryPort)
+        }
+
+        $activeInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.ActiveInterface)
+        if ([string]::IsNullOrWhiteSpace($activeInterface)) {
+            $activeInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.ActivePortDisplay)
+        }
+        if ([string]::IsNullOrWhiteSpace($activeInterface)) {
+            $activeInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$EthParsed.ActivePort)
+        }
+
+        $netMode = [string]$EthParsed.NetMode
+        $configuredPrimarySelector = ConvertTo-SelNetPortSelector -Interface $primaryInterface
+
+        if ($EthParsed.PSObject.Properties.Name -contains "Port1A" -and $EthParsed.Port1A) {
+            $port1A = $EthParsed.Port1A
+        }
+        if ($EthParsed.PSObject.Properties.Name -contains "Port1B" -and $EthParsed.Port1B) {
+            $port1B = $EthParsed.Port1B
+        }
+    }
+
+    return [pscustomobject]@{
+        portGroup = "1"
+        interfaces = @("1A", "1B")
+        primaryInterface = $primaryInterface
+        activeInterface = $activeInterface
+        configuredPrimarySelector = $configuredPrimarySelector
+        netMode = $netMode
+        interfaceStatus = [pscustomobject]@{
+            "1A" = $port1A
+            "1B" = $port1B
+        }
+        primaryPort = $configuredPrimarySelector
+        activePort = (ConvertTo-SelNetPortSelector -Interface $activeInterface)
     }
 }
 
@@ -721,6 +870,7 @@ function Resolve-SelReIpTarget {
         [string]$Ip,
         [string]$Mask,
         [string]$Gateway,
+        [string]$PrimaryInterface,
         [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv"),
         [switch]$PromptIfMissing
     )
@@ -728,15 +878,23 @@ function Resolve-SelReIpTarget {
     $resolvedIp = $Ip
     $resolvedMask = $Mask
     $resolvedGateway = $Gateway
+    $resolvedPrimaryInterface = ConvertTo-SelPrimaryInterface -Selector $PrimaryInterface
     $source = "cli"
 
-    if ((-not $resolvedIp -or -not $resolvedMask -or -not $resolvedGateway) -and $Serial) {
+    if (-not [string]::IsNullOrWhiteSpace($PrimaryInterface) -and [string]::IsNullOrWhiteSpace($resolvedPrimaryInterface)) {
+        throw "PrimaryInterface must be 1A or 1B."
+    }
+
+    if ((-not $resolvedIp -or -not $resolvedMask -or -not $resolvedGateway -or -not $resolvedPrimaryInterface) -and $Serial) {
         $row = Get-SelDesiredStateActiveRows -Path $DesiredStatePath | Where-Object { $_.Serial -eq $Serial } | Select-Object -First 1
         if ($row) {
             if (-not $resolvedIp) { $resolvedIp = [string]$row.DesiredIP }
             if (-not $resolvedMask) { $resolvedMask = [string]$row.DesiredSubnetMask }
             if (-not $resolvedGateway) { $resolvedGateway = [string]$row.DesiredGateway }
-            if ($resolvedIp -or $resolvedMask -or $resolvedGateway) {
+            if (-not $resolvedPrimaryInterface -and ($row.PSObject.Properties.Name -contains "DesiredPrimaryInterface")) {
+                $resolvedPrimaryInterface = ConvertTo-SelPrimaryInterface -Selector ([string]$row.DesiredPrimaryInterface)
+            }
+            if ($resolvedIp -or $resolvedMask -or $resolvedGateway -or $resolvedPrimaryInterface) {
                 $source = "desiredstate"
             }
         }
@@ -746,13 +904,20 @@ function Resolve-SelReIpTarget {
         if (-not $resolvedIp) { $resolvedIp = Read-Host "Target IP" }
         if (-not $resolvedMask) { $resolvedMask = Read-Host "Target subnet mask" }
         if (-not $resolvedGateway) { $resolvedGateway = Read-Host "Target gateway" }
-        if ($source -eq "cli" -and ($Ip -ne $resolvedIp -or $Mask -ne $resolvedMask -or $Gateway -ne $resolvedGateway)) {
+        if (-not $resolvedPrimaryInterface) {
+            $primaryInput = Read-Host "Primary interface (1A or 1B)"
+            $resolvedPrimaryInterface = ConvertTo-SelPrimaryInterface -Selector $primaryInput
+            if (-not [string]::IsNullOrWhiteSpace($primaryInput) -and [string]::IsNullOrWhiteSpace($resolvedPrimaryInterface)) {
+                throw "PrimaryInterface must be 1A or 1B."
+            }
+        }
+        if ($source -eq "cli" -and ($Ip -ne $resolvedIp -or $Mask -ne $resolvedMask -or $Gateway -ne $resolvedGateway -or $resolvedPrimaryInterface -ne (ConvertTo-SelPrimaryInterface -Selector $PrimaryInterface))) {
             $source = "prompt"
         }
     }
 
-    if (-not $resolvedIp -or -not $resolvedMask -or -not $resolvedGateway) {
-        throw "Missing reip values. Provide CLI values, a desiredstate row for Serial, or use prompts."
+    if (-not $resolvedIp -or -not $resolvedMask -or -not $resolvedGateway -or -not $resolvedPrimaryInterface) {
+        throw "Missing reip values. Provide CLI values, a desiredstate row for Serial, or use prompts (IP, mask, gateway, and PrimaryInterface)."
     }
 
     return [pscustomobject]@{
@@ -760,6 +925,8 @@ function Resolve-SelReIpTarget {
         Ip = $resolvedIp
         Mask = $resolvedMask
         Gateway = $resolvedGateway
+        PrimaryInterface = $resolvedPrimaryInterface
+        NetPort = (ConvertTo-SelNetPortSelector -Interface $resolvedPrimaryInterface)
         Source = $source
     }
 }
@@ -776,6 +943,12 @@ function Update-SelDesiredStateObserved {
         [string]$ObservedFirmwareLabel,
         [Parameter(Mandatory = $false)]
         [string]$ObservedFid,
+        [Parameter(Mandatory = $false)]
+        [string]$ObservedPrimaryInterface,
+        [Parameter(Mandatory = $false)]
+        [string]$ObservedActiveInterface,
+        [Parameter(Mandatory = $false)]
+        [string]$ObservedNetMode,
         [Parameter(Mandatory = $false)]
         [string]$Name,
         [Parameter(Mandatory = $false)]
@@ -800,9 +973,13 @@ function Update-SelDesiredStateObserved {
             DesiredIP = ""
             DesiredSubnetMask = ""
             DesiredGateway = ""
+            DesiredPrimaryInterface = ""
             DesiredFirmwareLabel = ""
             DesiredConfigSha256 = ""
             ObservedIP = ""
+            ObservedPrimaryInterface = ""
+            ObservedActiveInterface = ""
+            ObservedNetMode = ""
             ObservedFirmwareLabel = ""
             ObservedFid = ""
             LastSeen = ""
@@ -820,11 +997,26 @@ function Update-SelDesiredStateObserved {
     if (-not ($existing.PSObject.Properties.Name -contains "Description")) {
         Add-Member -InputObject $existing -MemberType NoteProperty -Name "Description" -Value ""
     }
+    if (-not ($existing.PSObject.Properties.Name -contains "DesiredPrimaryInterface")) {
+        Add-Member -InputObject $existing -MemberType NoteProperty -Name "DesiredPrimaryInterface" -Value ""
+    }
+    if (-not ($existing.PSObject.Properties.Name -contains "ObservedPrimaryInterface")) {
+        Add-Member -InputObject $existing -MemberType NoteProperty -Name "ObservedPrimaryInterface" -Value ""
+    }
+    if (-not ($existing.PSObject.Properties.Name -contains "ObservedActiveInterface")) {
+        Add-Member -InputObject $existing -MemberType NoteProperty -Name "ObservedActiveInterface" -Value ""
+    }
+    if (-not ($existing.PSObject.Properties.Name -contains "ObservedNetMode")) {
+        Add-Member -InputObject $existing -MemberType NoteProperty -Name "ObservedNetMode" -Value ""
+    }
 
     if ($Name) { $existing.Name = $Name }
     if ($Description) { $existing.Description = $Description }
     if ($Mac) { $existing.Mac = $Mac }
     if ($ObservedIP) { $existing.ObservedIP = $ObservedIP }
+    if ($ObservedPrimaryInterface) { $existing.ObservedPrimaryInterface = $ObservedPrimaryInterface }
+    if ($ObservedActiveInterface) { $existing.ObservedActiveInterface = $ObservedActiveInterface }
+    if ($ObservedNetMode) { $existing.ObservedNetMode = $ObservedNetMode }
     if ($ObservedFirmwareLabel) { $existing.ObservedFirmwareLabel = $ObservedFirmwareLabel }
     if ($ObservedFid) { $existing.ObservedFid = $ObservedFid }
     $existing.LastSeen = (Get-Date).ToString("s")
@@ -837,6 +1029,18 @@ function Update-SelDesiredStateObserved {
         }
         if (-not ($row.PSObject.Properties.Name -contains "Description")) {
             Add-Member -InputObject $row -MemberType NoteProperty -Name "Description" -Value ""
+        }
+        if (-not ($row.PSObject.Properties.Name -contains "DesiredPrimaryInterface")) {
+            Add-Member -InputObject $row -MemberType NoteProperty -Name "DesiredPrimaryInterface" -Value ""
+        }
+        if (-not ($row.PSObject.Properties.Name -contains "ObservedPrimaryInterface")) {
+            Add-Member -InputObject $row -MemberType NoteProperty -Name "ObservedPrimaryInterface" -Value ""
+        }
+        if (-not ($row.PSObject.Properties.Name -contains "ObservedActiveInterface")) {
+            Add-Member -InputObject $row -MemberType NoteProperty -Name "ObservedActiveInterface" -Value ""
+        }
+        if (-not ($row.PSObject.Properties.Name -contains "ObservedNetMode")) {
+            Add-Member -InputObject $row -MemberType NoteProperty -Name "ObservedNetMode" -Value ""
         }
     }
 
@@ -1521,6 +1725,7 @@ function Invoke-SelInventory {
     $idParsed = ConvertFrom-SelIdOutput -Text $capture.ID
     $serSummaryParsed = ConvertFrom-SelStaOutput -Text $capture.SER
     $ethParsed = ConvertFrom-SelEthOutput -Text $capture.ETH
+    $ethernetModel = Get-SelEthernetModelFromEthParsed -EthParsed $ethParsed
 
     $observedSerial = [string]$serSummaryParsed.Serial
     if (-not $observedSerial) {
@@ -1578,6 +1783,7 @@ function Invoke-SelInventory {
             # Compatibility key retained for existing readers.
             STA = $serSummaryParsed
             ETH = $ethParsed
+            Ethernet = $ethernetModel
         }
         protocol = [pscustomobject]@{
             accOk = $capture.AccOk
@@ -1619,7 +1825,7 @@ function Invoke-SelInventory {
         note = [string]$serPullResult.Note
     }
     Add-SelDeviceEvent -Serial $observedSerial -Event $serPullEvent
-    Update-SelDesiredStateObserved -Serial $observedSerial -Name ([string]$metadata.Name) -Description ([string]$metadata.Description) -Mac ([string]$ethParsed.MAC) -ObservedIP $observedIp -ObservedFirmwareLabel (Get-SelFirmwareLabelFromFid -Fid $observedFid) -ObservedFid $observedFid
+    Update-SelDesiredStateObserved -Serial $observedSerial -Name ([string]$metadata.Name) -Description ([string]$metadata.Description) -Mac ([string]$ethParsed.MAC) -ObservedIP $observedIp -ObservedPrimaryInterface ([string]$ethernetModel.primaryInterface) -ObservedActiveInterface ([string]$ethernetModel.activeInterface) -ObservedNetMode ([string]$ethernetModel.netMode) -ObservedFirmwareLabel (Get-SelFirmwareLabelFromFid -Fid $observedFid) -ObservedFid $observedFid
     Write-SelTrace -TraceContext $trace -Message ("inventory persistence complete serial={0} observedIp={1} status={2}" -f $observedSerial, $observedIp, $status)
     if ($trace.Enabled) {
         if ($PassThru) {
@@ -1663,6 +1869,7 @@ function Invoke-SelReIp {
         [string]$Ip,
         [string]$Mask,
         [string]$Gateway,
+        [string]$PrimaryInterface,
         [string]$Profile = "factory",
         [switch]$DebugTransport,
         [switch]$PassThru
@@ -1674,7 +1881,7 @@ function Invoke-SelReIp {
 
     $defaults = Get-SelDefaults -Profile $Profile
 
-    $target = Resolve-SelReIpTarget -Serial $Serial -Ip $Ip -Mask $Mask -Gateway $Gateway -PromptIfMissing
+    $target = Resolve-SelReIpTarget -Serial $Serial -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -PromptIfMissing
 
     $event = [pscustomobject]@{
         timestamp = (Get-Date).ToString("s")
@@ -1683,6 +1890,8 @@ function Invoke-SelReIp {
         targetIp = $target.Ip
         targetMask = $target.Mask
         targetGateway = $target.Gateway
+        targetPrimaryInterface = $target.PrimaryInterface
+        targetNetPort = $target.NetPort
         source = $target.Source
         profile = $Profile
         defaultsDefaultIp = [string]$defaults.DefaultIP
@@ -1692,10 +1901,10 @@ function Invoke-SelReIp {
 
     Add-SelDeviceEvent -Serial $Serial -Event $event
     if ($PassThru) {
-        Write-Host ("ReIP scaffold target resolved: {0}/{1} gw {2} (source={3}, profile={4})" -f $target.Ip, $target.Mask, $target.Gateway, $target.Source, $Profile)
+        Write-Host ("ReIP scaffold target resolved: {0}/{1} gw {2} primary {3} (NETPORT={4}, source={5}, profile={6})" -f $target.Ip, $target.Mask, $target.Gateway, $target.PrimaryInterface, $target.NetPort, $target.Source, $Profile)
     }
     else {
-        Write-Output ("ReIP scaffold target resolved: {0}/{1} gw {2} (source={3}, profile={4})" -f $target.Ip, $target.Mask, $target.Gateway, $target.Source, $Profile)
+        Write-Output ("ReIP scaffold target resolved: {0}/{1} gw {2} primary {3} (NETPORT={4}, source={5}, profile={6})" -f $target.Ip, $target.Mask, $target.Gateway, $target.PrimaryInterface, $target.NetPort, $target.Source, $Profile)
     }
     if ($PassThru) {
         return [pscustomobject]@{
@@ -1704,6 +1913,8 @@ function Invoke-SelReIp {
             Serial = $Serial
             HostIp = $HostIp
             ObservedIp = $target.Ip
+            PrimaryInterface = $target.PrimaryInterface
+            NetPort = $target.NetPort
             IsNewDevice = $false
             Changes = @()
         }
@@ -1738,8 +1949,11 @@ Export-ModuleMember -Function @(
     "Test-SelDesiredStateRowActive",
     "ConvertFrom-SelIdOutput",
     "ConvertFrom-SelStaOutput",
+    "ConvertTo-SelPrimaryInterface",
+    "ConvertTo-SelNetPortSelector",
     "ConvertFrom-SelSerEventRecords",
     "ConvertFrom-SelEthOutput",
+    "Get-SelEthernetModelFromEthParsed",
     "Resolve-SelReIpTarget",
     "Update-SelDesiredStateObserved",
     "Add-SelDeviceEvent",

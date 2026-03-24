@@ -1,0 +1,40 @@
+2026-03-08T12:33:50 [TRACE] inventory start serial= hostIp=192.168.1.2 profile=factory
+2026-03-08T12:33:50 [TRACE] inventory hostIp final=192.168.1.2 source=cli
+2026-03-08T12:33:50 [TRACE] PLINK start host=192.168.1.2 path=C:\Users\eli\Documents\seltools\tools\plink.exe args="-telnet -P 23 192.168.1.2"
+2026-03-08T12:33:50 [TRACE] WAIT available start initialWaitMs=500
+2026-03-08T12:33:51 [TRACE] RX stdout "TERMINAL SERVER\r\n"
+2026-03-08T12:33:51 [TRACE] RX chars stdout=19 stderr=0
+2026-03-08T12:33:51 [TRACE] WAIT available done chars=17
+2026-03-08T12:33:51 [TRACE] TX ""
+2026-03-08T12:33:51 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T12:33:51 [TRACE] RX stdout "\r\n"
+2026-03-08T12:33:51 [TRACE] RX chars stdout=2 stderr=0
+2026-03-08T12:33:51 [TRACE] RX stdout "\r\n="
+2026-03-08T12:33:51 [TRACE] RX chars stdout=5 stderr=0
+2026-03-08T12:33:51 [TRACE] WAIT until matched elapsedMs=106
+2026-03-08T12:33:51 [TRACE] TX "ID"
+2026-03-08T12:33:51 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T12:33:51 [TRACE] RX stdout "ID\r\n"
+2026-03-08T12:33:51 [TRACE] RX stdout "\r\n"FID=SEL-751-R401-V0-Z101100-D20240308","08A3"\r\n"BFID=SLBTIND-R101-V0-Z000000-D20230609","0944"\r\n"CID=1D4A","0267"\r\n"DEVID=SEL-751","03C7"\r\n"DEVCODE=77","0315"\r\n"PARTNO=751001A1A4A0X851G10","06A5"\r\n"CONFIG=111112010","041B"..."
+2026-03-08T12:33:51 [TRACE] RX chars stdout=361 stderr=0
+2026-03-08T12:33:51 [TRACE] WAIT until matched elapsedMs=112
+2026-03-08T12:33:51 [TRACE] TX "ACC"
+2026-03-08T12:33:51 [TRACE] WAIT until start pattern=Password:|Invalid Access Level|Command Unavailable|(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T12:33:51 [TRACE] RX stdout "ACC\r\n"
+2026-03-08T12:33:51 [TRACE] RX stdout "Password: ? "
+2026-03-08T12:33:51 [TRACE] RX chars stdout=18 stderr=0
+2026-03-08T12:33:51 [TRACE] WAIT until matched elapsedMs=113
+2026-03-08T12:33:51 [TRACE] TX "<REDACTED_PASSWORD>"
+2026-03-08T12:33:51 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T12:33:51 [TRACE] RX stdout "*****\r\n"
+2026-03-08T12:33:51 [TRACE] RX stdout "\r\nSEL-751                                  Date: 03/08/2026   Time: 09:33:43.510\r\nFEEDER RELAY                             Time Source: Internal\r\n\r\nLevel 1\r\n\r\n=>"
+2026-03-08T12:33:51 [TRACE] RX chars stdout=171 stderr=0
+2026-03-08T12:33:51 [TRACE] WAIT until matched elapsedMs=99
+2026-03-08T12:33:51 [TRACE] TX "STA"
+2026-03-08T12:33:51 [TRACE] WAIT until start pattern=(?m)^\s*=(>>|>)?\s*$ timeoutMs=6000
+2026-03-08T12:33:51 [TRACE] RX stdout "STA\r\n"
+2026-03-08T12:33:51 [TRACE] RX chars stdout=5 stderr=0
+2026-03-08T12:33:51 [TRACE] RX stdout "\r\nSEL-751                                  Date: 03/08/2026   Time: 09:33:43.619\r\nFEEDER RELAY                             Time Source: Internal\r\n\r\nSerial Num = 3241995707     FID = SEL-751-R401-V0-Z101100-D20240308\r\nCID = 1D4A  ..."
+2026-03-08T12:33:51 [TRACE] RX chars stdout=512 stderr=0
+2026-03-08T12:33:57 [TRACE] WAIT until timeout elapsedMs=6047 chars=516 stderr=""
+2026-03-08T12:33:57 [TRACE] inventory capture exception: Timed out waiting for pattern '(?m)^\s*=(>>|>)?\s*$' on host 192.168.1.2.

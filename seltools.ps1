@@ -8,12 +8,23 @@ param(
     [string]$Ip,
     [string]$Mask,
     [string]$Gateway,
+    [string]$PrimaryInterface,
     [string]$Profile = "factory",
     [switch]$DebugTransport
 )
 
 $modulePath = Join-Path $PSScriptRoot "src\SelTools\SelTools.psm1"
 Import-Module $modulePath -Force
+$script:SelToolsVersion = "v0.1.0"
+$script:SelToolsArt = @'
+      ::::::::  :::::::::: :::       ::::::::::: ::::::::   ::::::::  :::        :::::::: 
+    :+:    :+: :+:        :+:           :+:    :+:    :+: :+:    :+: :+:       :+:    :+: 
+   +:+        +:+        +:+           +:+    +:+    +:+ +:+    +:+ +:+       +:+         
+  +#++:++#++ +#++:++#   +#+           +#+    +#+    +:+ +#+    +:+ +#+       +#++:++#++   
+        +#+ +#+        +#+           +#+    +#+    +#+ +#+    +#+ +#+              +#+    
+#+#+#+#+# #+#        #+#           #+#    #+#    #+# #+#    #+# #+#       #+#    #+#     
+########  ########## ##########    ###     ########   ########  ########## ########       
+'@
 
 function Get-SelPromptValue {
     param(
@@ -62,8 +73,19 @@ function Show-SelHelp {
     Write-Host "Examples:"
     Write-Host "  .\seltools.ps1 inventory -HostIp 192.168.1.2"
     Write-Host "  .\seltools.ps1 inventory -Serial 3241995707"
-    Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1"
+    Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1 -PrimaryInterface 1A"
     Write-Host "  .\seltools.ps1 fwupgrade -Serial 3241995707 -HostIp 192.168.1.2"
+}
+
+function Show-SelBanner {
+    if (-not [string]::IsNullOrWhiteSpace($script:SelToolsArt)) {
+        Write-Host $script:SelToolsArt
+    }
+
+    Write-Host ("Author: Eli Fripp <eli@fripp.us>")
+    Write-Host ("Version: {0}" -f $script:SelToolsVersion)
+    Write-Host ("Run Date: {0}" -f (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz"))
+    Write-Host ""
 }
 
 function Start-SelInventoryBrowser {
@@ -198,6 +220,7 @@ function Invoke-SelDispatch {
         [string]$Ip,
         [string]$Mask,
         [string]$Gateway,
+        [string]$PrimaryInterface,
         [string]$Profile = "factory",
         [switch]$DebugTransport,
         [switch]$PassThru
@@ -208,7 +231,7 @@ function Invoke-SelDispatch {
             Invoke-SelInventory -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
         }
         "reip" {
-            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
+            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
         }
         "fwupgrade" {
             Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport
@@ -260,6 +283,7 @@ function Start-SelInteractiveMenu {
         [string]$Ip,
         [string]$Mask,
         [string]$Gateway,
+        [string]$PrimaryInterface,
         [string]$Profile = "factory",
         [switch]$DebugTransport,
         [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
@@ -316,9 +340,10 @@ function Start-SelInteractiveMenu {
                 $Ip = Get-SelPromptValue -Label "Target IP" -CurrentValue $Ip -ReadInput $ReadInput
                 $Mask = Get-SelPromptValue -Label "Target subnet mask" -CurrentValue $Mask -ReadInput $ReadInput
                 $Gateway = Get-SelPromptValue -Label "Target gateway" -CurrentValue $Gateway -ReadInput $ReadInput
+                $PrimaryInterface = Get-SelPromptValue -Label "Primary interface (1A or 1B)" -CurrentValue $PrimaryInterface -ReadInput $ReadInput
                 $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
                 try {
-                    $result = Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+                    $result = Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru
                     if ($null -ne $result) {
                         $runResults += $result
                     }
@@ -357,10 +382,12 @@ if ($MyInvocation.InvocationName -eq ".") {
     return
 }
 
+Show-SelBanner
+
 if ($Command) {
-    $result = Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+    $result = Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru
     Write-SelRunReport -Results @($result)
 }
 else {
-    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -Profile $Profile -DebugTransport:$DebugTransport
+    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport
 }

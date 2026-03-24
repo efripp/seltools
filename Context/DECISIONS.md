@@ -119,3 +119,9 @@
 **Alternatives:** Keep placeholder menu entry or always force folder picker.
 **Reason:** Reduce operator friction while respecting browser permission constraints.
 **Consequence:** First-time access still requires explicit folder grant; repeat access can reconnect in one click on same browser origin/profile. Selected folder is the data root (`/seltools/data`), and app paths are relative from that root.
+
+## ADR-0021: Normalize SEL-751 Ethernet interface naming with compatibility aliases
+**Decision:** Model Ethernet as Port 1 group with physical interfaces `1A`/`1B`; map relay config selector `NETPORT A/B` to normalized `primaryInterface 1A/1B`.
+**Alternatives:** Keep only raw `A/B` naming in all layers, or migrate immediately without alias compatibility.
+**Reason:** `SET P 1` config scope and `ETH` runtime/status output use different tokens (`A/B` vs `1A/1B`); normalization avoids ambiguity in desired-state comparisons and future re-ip logic.
+**Consequence:** Inventory parsing now captures `NETMODE`, `PRIMARY PORT`, `ACTIVE PORT`, and per-interface rows; JSON writes normalized `inventory.Ethernet.*` with transitional aliases (`primaryPort`/`activePort`), and desired-state includes `DesiredPrimaryInterface`, `ObservedPrimaryInterface`, `ObservedActiveInterface`, `ObservedNetMode`.

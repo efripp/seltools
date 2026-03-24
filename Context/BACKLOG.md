@@ -18,9 +18,18 @@
 - SER event stream stored separately (`data/events/<serial>/ser.jsonl` + raw `*-ser.txt` archives)
 - Inventory writes `ser-pull` summary events and no longer persists raw `inventory.SER`
 - Inventory Browser can browse SER event stream data per device
+- Re-IP scaffold dispatch/prompt flow is wired into CLI/menu paths
+- Re-IP target precedence resolver implemented (CLI > desiredstate by serial > prompt)
+- Re-IP scaffold event persistence and `-PassThru` run-report object implemented
+- Normalized SEL-751 Ethernet model added to inventory parsing (`portGroup=1`, `interfaces=1A/1B`, `primaryInterface`, `activeInterface`, `configuredPrimarySelector`, `netMode`)
+- Desired-state schema extended for interface state (`DesiredPrimaryInterface`, `ObservedPrimaryInterface`, `ObservedActiveInterface`, `ObservedNetMode`)
+- CLI/scaffold reip selector added as `-PrimaryInterface 1A|1B` with mapping to relay `NETPORT A|B`
+- Backward-compat alias writes retained (`primaryPort`/`activePort`) while normalized fields are preferred
 
 ## In progress
-- Re-IP implementation over Telnet (`SET P 1` interactive dialog + reconnect verify)
+- Re-IP live Telnet implementation (`SET P 1` automation + reconnect verify)
+- Re-IP access escalation flow when denied (`ACC` -> `2AC` -> `C`)
+- Re-IP serial verification/reporting behavior after reconnect (warning state on mismatch)
 
 ## Next
 ### 1) CLI scaffolding

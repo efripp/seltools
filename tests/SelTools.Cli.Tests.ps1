@@ -34,10 +34,10 @@ Describe "CLI helper behavior" {
     It "Invoke-SelDispatch routes reip with expected arguments" {
         Mock Invoke-SelReIp { }
 
-        Invoke-SelDispatch -CommandName "reip" -Serial "S1" -HostIp "192.168.1.2" -Ip "10.1.2.3" -Mask "255.255.255.0" -Gateway "10.1.2.1" -Profile "site-a"
+        Invoke-SelDispatch -CommandName "reip" -Serial "S1" -HostIp "192.168.1.2" -Ip "10.1.2.3" -Mask "255.255.255.0" -Gateway "10.1.2.1" -PrimaryInterface "1A" -Profile "site-a"
 
         Assert-MockCalled Invoke-SelReIp -Times 1 -Exactly -ParameterFilter {
-            $Serial -eq "S1" -and $HostIp -eq "192.168.1.2" -and $Ip -eq "10.1.2.3" -and $Mask -eq "255.255.255.0" -and $Gateway -eq "10.1.2.1" -and $Profile -eq "site-a"
+            $Serial -eq "S1" -and $HostIp -eq "192.168.1.2" -and $Ip -eq "10.1.2.3" -and $Mask -eq "255.255.255.0" -and $Gateway -eq "10.1.2.1" -and $PrimaryInterface -eq "1A" -and $Profile -eq "site-a"
         }
     }
 

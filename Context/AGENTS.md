@@ -10,6 +10,15 @@
 - Clarity > cleverness; prefer small functions.
 - Main module is `src/SelTools/SelTools.psm1`; CLI entrypoint is `seltools.ps1`.
 - Return structured objects (pscustomobject) rather than strings.
+- SEL-751 Ethernet naming must be consistent:
+  - `SET P 1` = Port 1 Ethernet group scope
+  - physical interfaces = `1A`, `1B`
+  - config selector = `NETPORT` `A|B`
+  - status fields use `1A|1B`
+- Prefer normalized fields in persistence:
+  - `primaryInterface` / `activeInterface` in `1A|1B`
+  - `configuredPrimarySelector` in `A|B`
+- Preserve compatibility aliases when practical (`primaryPort`, `activePort`) for existing readers.
 
 ## Safety requirements
 - If C escalation fails: close session; output remediation steps. 

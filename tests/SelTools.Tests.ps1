@@ -58,6 +58,20 @@ Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,De
         $rows[0].Name | Should Be "Feeder 751"
         $rows[0].Description | Should Be "Primary feeder relay"
     }
+
+    It "adds observed Ethernet interface columns on update" {
+        $tmp = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,,,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+'@ | Set-Content $tmp
+
+        Update-SelDesiredStateObserved -Serial "3241995707" -ObservedPrimaryInterface "1A" -ObservedActiveInterface "1B" -ObservedNetMode "FAILOVER" -DesiredStatePath $tmp
+        $rows = @(Import-Csv -Path $tmp)
+        $rows[0].ObservedPrimaryInterface | Should Be "1A"
+        $rows[0].ObservedActiveInterface | Should Be "1B"
+        $rows[0].ObservedNetMode | Should Be "FAILOVER"
+    }
 }
 
 Describe "Defaults profile selection" {
@@ -110,28 +124,44 @@ Describe "ReIP precedence" {
     It "prefers CLI values over desiredstate.csv" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredPrimaryInterface,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedPrimaryInterface,ObservedActiveInterface,ObservedNetMode,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,1B,SEL-751-R401,,,,,,,,,,,
 '@ | Set-Content $tmp
 
-        $result = Resolve-SelReIpTarget -Serial "3241995707" -Ip "10.1.2.3" -Mask "255.255.255.0" -Gateway "10.1.2.1" -DesiredStatePath $tmp
+        $result = Resolve-SelReIpTarget -Serial "3241995707" -Ip "10.1.2.3" -Mask "255.255.255.0" -Gateway "10.1.2.1" -PrimaryInterface "1A" -DesiredStatePath $tmp
         $result.Ip | Should Be "10.1.2.3"
         $result.Mask | Should Be "255.255.255.0"
         $result.Gateway | Should Be "10.1.2.1"
+        $result.PrimaryInterface | Should Be "1A"
+        $result.NetPort | Should Be "A"
     }
 
     It "falls back to desiredstate.csv when CLI values are missing" {
         $tmp = Join-Path $TestDrive "desiredstate.csv"
         @'
-Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
-3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,SEL-751-R401,,,,,,,,
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredPrimaryInterface,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedPrimaryInterface,ObservedActiveInterface,ObservedNetMode,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+3241995707,TRUE,Feeder 751,Primary feeder relay,00-30-A7-3D-6F-A9,192.168.1.101,255.255.255.0,192.168.1.1,1B,SEL-751-R401,,,,,,,,,,,
 '@ | Set-Content $tmp
 
         $result = Resolve-SelReIpTarget -Serial "3241995707" -DesiredStatePath $tmp
         $result.Ip | Should Be "192.168.1.101"
         $result.Mask | Should Be "255.255.255.0"
         $result.Gateway | Should Be "192.168.1.1"
+        $result.PrimaryInterface | Should Be "1B"
+        $result.NetPort | Should Be "B"
         $result.Source | Should Be "desiredstate"
+    }
+}
+
+Describe "Ethernet interface mapping" {
+    It "maps selector A/B to interface names 1A/1B" {
+        (ConvertTo-SelPrimaryInterface -Selector "A") | Should Be "1A"
+        (ConvertTo-SelPrimaryInterface -Selector "b") | Should Be "1B"
+    }
+
+    It "maps interface names 1A/1B to NETPORT selector A/B" {
+        (ConvertTo-SelNetPortSelector -Interface "1A") | Should Be "A"
+        (ConvertTo-SelNetPortSelector -Interface "1b") | Should Be "B"
     }
 }
 
@@ -166,12 +196,23 @@ MAC: 00-30-A7-3D-6F-A9
 IP ADDRESS: 192.168.1.2
 SUBNET MASK: 255.255.255.0
 DEFAULT GATEWAY: 192.168.1.1
+NETMODE: FAILOVER
+PRIMARY PORT: 1A
+ACTIVE PORT: 1B
+PORT 1A Up 100 Full Copper
+PORT 1B Down
 '@
         $parsed = ConvertFrom-SelEthOutput -Text $ethText
         $parsed.MAC | Should Be "00-30-A7-3D-6F-A9"
         $parsed.IP | Should Be "192.168.1.2"
         $parsed.Mask | Should Be "255.255.255.0"
         $parsed.Gateway | Should Be "192.168.1.1"
+        $parsed.NetMode | Should Be "FAILOVER"
+        $parsed.PrimaryInterface | Should Be "1A"
+        $parsed.ActiveInterface | Should Be "1B"
+        $parsed.ConfiguredPrimarySelector | Should Be "A"
+        $parsed.Port1A.LinkStatus | Should Be "UP"
+        $parsed.Port1B.LinkStatus | Should Be "DOWN"
     }
 }
 

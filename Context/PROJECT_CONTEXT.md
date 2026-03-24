@@ -28,6 +28,31 @@
 - Runtime target: Windows PowerShell 5.1.
 - Local static web app under `web/` for browsing/editing data via File System Access API.
 
+## SEL-751 Ethernet interface model
+- Port 1 is the Ethernet configuration group (not a specific physical interface).
+- Physical interfaces under Port 1 are `1A` and `1B`.
+- `SET P 1` enters Ethernet group configuration scope.
+- `NETPORT := A|B` selects configured primary side for Port 1.
+- `ETH` status uses `1A`/`1B` naming (`PRIMARY PORT`, `ACTIVE PORT`, `PORT 1A`, `PORT 1B`).
+- Internal normalized model:
+  - `portGroup = "1"`
+  - `interfaces = ["1A","1B"]`
+  - `primaryInterface = "1A"|"1B"`
+  - `activeInterface = "1A"|"1B"`
+  - `configuredPrimarySelector = "A"|"B"`
+  - `netMode = relay NETMODE value`
+
+## Interface gotchas
+- `SET P 1` does not choose `A` or `B` by itself.
+- `NETPORT` chooses the configured primary interface.
+- `ETH` reports runtime state; `ACTIVE PORT` may differ from configured primary in failover/switching modes.
+
+## Scripting guidance
+- Use `ETH` to discover runtime interface state (`PRIMARY PORT`, `ACTIVE PORT`, per-interface rows).
+- Use `SET P 1` to configure Ethernet group settings.
+- Use `NETPORT` to set preferred primary side.
+- Keep configured state and runtime state as separate fields in JSON/desired state.
+
 ## Input and persistence policy
 - Credentials source policy:
   - Read from `defaults.csv` profile row when present (default profile: `factory`).
@@ -37,6 +62,9 @@
   1. CLI args
   2. `desiredstate.csv` lookup by Serial
   3. Interactive prompt
+- Re-IP primary interface selector:
+  - Canonical CLI selector is `-PrimaryInterface` with values `1A` or `1B`.
+  - Relay config selector is mapped to/from `NETPORT` values `A` or `B`.
 - Inventory persistence:
   - Append structured event to `data/devices/<serial>.json`
   - Maintain top-level device metadata in JSON: `name`, `description`
@@ -48,6 +76,11 @@
   - Update observed fields in `desiredstate.csv`
   - If serial is missing in CSV, append a new row with observed values
   - `desiredstate.csv` includes optional metadata columns: `Name`, `Description`
+  - `desiredstate.csv` interface columns:
+    - `DesiredPrimaryInterface`
+    - `ObservedPrimaryInterface`
+    - `ObservedActiveInterface`
+    - `ObservedNetMode`
 - Inventory host resolution precedence:
   1. CLI `-HostIp`
   2. If `-Serial` is provided and `-HostIp` is missing:
@@ -84,7 +117,7 @@
 - Commands support interactive prompts and no-arg menu operation.
 - Pester tests cover parser behavior, argument/input precedence, and CLI helper dispatch/prompt defaults.
 
-## Implementation status (2026-03-08)
+## Implementation status (2026-03-23)
 - Implemented:
   - Profile-based defaults selection (`-Profile`, default `factory`)
   - Plink transport for Telnet session handling (`tools/plink.exe` with `SELTOOLS_PLINK_PATH` override)
@@ -92,6 +125,9 @@
   - Parsing of ID/STA/ETH fields and persistence to:
     - `data/devices/<serial>.json`
     - observed columns in `data/desiredstate.csv`
+  - Normalized Ethernet model in inventory events:
+    - `inventory.Ethernet.portGroup`, `interfaces`, `primaryInterface`, `activeInterface`, `configuredPrimarySelector`, `netMode`, `interfaceStatus`
+    - compatibility aliases retained during transition (`primaryPort`/`activePort`)
   - SER event stream persistence to `data/events/<serial>/ser.jsonl` with raw archives in `data/events/<serial>/`
   - Menu-driven no-arg CLI (`inventory|reip|fwupgrade|help|exit`) with guided prompts and value prefills
   - Inventory sub-menu (`Single IP scan`, `IP Range scan` placeholder, `Inventory Browser` launcher)
@@ -107,5 +143,12 @@
     - desiredstate editing + device metadata editing
     - read-only inventory browser view
     - SER event stream browser for `data/events/<serial>/ser.jsonl`
+  - Re-IP scaffold behavior:
+    - command/menu dispatch is wired to `Invoke-SelReIp`
+    - target resolution precedence is implemented: CLI > desiredstate by serial > interactive prompt
+    - reip events are persisted to per-device JSON with resolved target values and source metadata
+    - `-PassThru` returns structured run-report data for menu summary integration
 - Current next target:
-  - Implement live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.
+  - Complete live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.
+  - Add access escalation flow for denied `SET P 1` (`ACC` -> `2AC` -> `C`) and fail-safe handling.
+  - Add reconnect identity checks and serial mismatch warning/report behavior for reip runs.
