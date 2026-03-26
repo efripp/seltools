@@ -460,6 +460,56 @@ function Send-SelSessionLine {
     $Session.StdIn.Flush()
 }
 
+function Write-SelProgress {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    Write-Host $Message
+    Write-SelTrace -TraceContext $TraceContext -Message $Message
+}
+
+function Read-SelPromptWithDefault {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [AllowNull()]
+        [string]$DefaultValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DefaultValue)) {
+        return (Read-Host $Prompt)
+    }
+
+    $input = Read-Host ("{0} [{1}]" -f $Prompt, $DefaultValue)
+    if ([string]::IsNullOrWhiteSpace($input)) {
+        return $DefaultValue
+    }
+
+    return $input
+}
+
+function Read-SelSensitiveValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt
+    )
+
+    $secure = Read-Host $Prompt -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    }
+    finally {
+        if ($bstr -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+    }
+}
+
 function Get-SelFirmwareLabelFromFid {
     param(
         [AllowNull()]
@@ -781,6 +831,343 @@ function Invoke-SelPlinkInventoryCapture {
     }
 }
 
+function Resolve-SelReIpHostIp {
+    param(
+        [string]$Serial,
+        [string]$HostIp,
+        [string]$ProfileDefaultIp,
+        [string]$DevicesDirectory = (Get-SelDataPath -ChildPath "devices"),
+        [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv")
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($HostIp)) {
+        return [pscustomobject]@{
+            HostIp = $HostIp
+            Source = "cli"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ProfileDefaultIp)) {
+        return [pscustomobject]@{
+            HostIp = $ProfileDefaultIp
+            Source = "profile-default"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Serial)) {
+        $jsonCandidate = Get-SelInventoryHostFromDeviceHistory -Serial $Serial -DevicesDirectory $DevicesDirectory
+        if ($jsonCandidate) {
+            return [pscustomobject]@{
+                HostIp = $jsonCandidate.Ip
+                Source = "json"
+            }
+        }
+
+        $desiredCandidate = Get-SelInventoryHostFromDesiredState -Serial $Serial -DesiredStatePath $DesiredStatePath
+        if ($desiredCandidate) {
+            return [pscustomobject]@{
+                HostIp = $desiredCandidate.Ip
+                Source = "desiredstate"
+            }
+        }
+    }
+
+    $prompted = Read-Host "Current relay IP"
+    if ([string]::IsNullOrWhiteSpace($prompted)) {
+        throw "Missing current relay IP. Provide -HostIp, configure DefaultIP in defaults.csv, or enter it when prompted."
+    }
+
+    return [pscustomobject]@{
+        HostIp = $prompted
+        Source = "prompt"
+    }
+}
+
+function Invoke-SelPingCheck {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING preflight host={0}" -f $HostIp)
+    $output = (& ping.exe -n 1 $HostIp 2>&1 | Out-String)
+    $success = ($output -match "(?im)TTL=" -or $output -match "(?im)^Reply from ")
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING preflight success={0}" -f $success)
+    return [pscustomobject]@{
+        HostIp = $HostIp
+        Success = $success
+        Output = $output.Trim()
+    }
+}
+
+function Wait-SelPingRecovery {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [int]$Count = 100,
+        [int]$SettleSeconds = 5,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING recovery host={0} count={1}" -f $HostIp, $Count)
+    $output = (& ping.exe -n $Count $HostIp 2>&1 | Out-String)
+    $replyMatches = [regex]::Matches($output, "(?im)^Reply from ")
+    $success = ($replyMatches.Count -gt 0 -or $output -match "(?im)TTL=")
+    if ($success -and $SettleSeconds -gt 0) {
+        Start-Sleep -Seconds $SettleSeconds
+    }
+
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING recovery success={0} replies={1}" -f $success, $replyMatches.Count)
+    return [pscustomobject]@{
+        HostIp = $HostIp
+        Success = $success
+        ReplyCount = $replyMatches.Count
+        SettleSeconds = $SettleSeconds
+        Output = $output.Trim()
+    }
+}
+
+function Confirm-SelReIpPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Target,
+        [AllowNull()]
+        [string]$ObservedSerial,
+        [AllowNull()]
+        [pscustomobject]$PreEthParsed
+    )
+
+    Write-Host ""
+    Write-Host "Re-IP Confirmation"
+    Write-Host ("  Current IP: {0}" -f $HostIp)
+    if (-not [string]::IsNullOrWhiteSpace($ObservedSerial)) {
+        Write-Host ("  Observed Serial: {0}" -f $ObservedSerial)
+    }
+    if ($PreEthParsed) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$PreEthParsed.IP)) {
+            Write-Host ("  Observed ETH IP: {0}" -f ([string]$PreEthParsed.IP))
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$PreEthParsed.PrimaryInterface)) {
+            Write-Host ("  Observed Primary Interface: {0}" -f ([string]$PreEthParsed.PrimaryInterface))
+        }
+    }
+    Write-Host ("  Target IP: {0}" -f $Target.Ip)
+    Write-Host ("  Target Mask: {0}" -f $Target.Mask)
+    Write-Host ("  Target Gateway: {0}" -f $Target.Gateway)
+    Write-Host ("  Target Primary Interface: {0} (NETPORT={1})" -f $Target.PrimaryInterface, $Target.NetPort)
+
+    $choice = Read-Host "Apply these settings? (y/N)"
+    return ($choice -match "^(?i)y(es)?$")
+}
+
+function Enter-Sel2AcAccess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Session,
+        [AllowNull()]
+        [string]$Password,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
+    Send-SelSessionLine -Session $Session -Text "2AC" -TraceContext $TraceContext
+    $response = Read-SelSessionUntil -Session $Session -Pattern ("Password:|Invalid Access Level|Command Unavailable|{0}" -f $promptPattern) -TraceContext $TraceContext -ThrowOnTimeout
+    if ($response -match "Password:") {
+        if ([string]::IsNullOrWhiteSpace($Password)) {
+            $Password = Read-SelSensitiveValue -Prompt "2AC Password"
+        }
+        Send-SelSessionLine -Session $Session -Text $Password -TraceContext $TraceContext -Sensitive
+        $response = $response + "`n" + (Read-SelSessionUntil -Session $Session -Pattern $promptPattern -TraceContext $TraceContext -ThrowOnTimeout)
+    }
+
+    $ok = ($response -match "(?m)^\s*=>>\s*$" -or $response -match "Level 2")
+    return [pscustomobject]@{
+        Success = $ok
+        Output = $response
+        AccessLevel = $(if ($ok) { "2AC" } else { "" })
+    }
+}
+
+function Invoke-SelReIpSetPort1 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Session,
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Target,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
+    $waitPattern = "Invalid Access Level|Command Unavailable|(?im)^\s*[A-Z0-9]+\s*:=[\s\S]*?\n\s*\?|(?i)save[\s\S]*\?|$promptPattern"
+    $desiredByField = @{
+        "IPADDR" = $Target.Ip
+        "SUBNETM" = $Target.Mask
+        "DEFRTR" = $Target.Gateway
+        "NETPORT" = $Target.NetPort
+    }
+
+    Send-SelSessionLine -Session $Session -Text "SET P 1" -TraceContext $TraceContext
+    $response = Read-SelSessionUntil -Session $Session -Pattern $waitPattern -TimeoutMs 10000 -TraceContext $TraceContext -ThrowOnTimeout
+
+    $steps = New-Object System.Collections.Generic.List[object]
+    $saveSent = $false
+
+    for ($i = 0; $i -lt 200; $i++) {
+        $clean = Remove-SelControlChars -Text $response
+        if ($clean -match "Invalid Access Level|Command Unavailable") {
+            throw "SET P 1 was denied at 2AC."
+        }
+
+        if ($clean -match "(?im)\b(save|write|apply)\b[\s\S]*\?\s*$") {
+            $answer = "Y"
+            $saveSent = $true
+            $steps.Add([pscustomobject]@{ Field = "SAVE"; Value = $answer }) | Out-Null
+            Send-SelSessionLine -Session $Session -Text $answer -TraceContext $TraceContext
+        }
+        elseif ($clean -match "(?im)^\s*([A-Z0-9]+)\s*:=[\s\S]*?\n\s*\?\s*$") {
+            $field = $Matches[1].ToUpperInvariant()
+            $value = ""
+            if ($desiredByField.ContainsKey($field)) {
+                $value = [string]$desiredByField[$field]
+            }
+            $steps.Add([pscustomobject]@{ Field = $field; Value = $value }) | Out-Null
+            Send-SelSessionLine -Session $Session -Text $value -TraceContext $TraceContext
+        }
+        elseif ($saveSent -and $Session.Process.HasExited) {
+            break
+        }
+        elseif ($clean -match $promptPattern) {
+            break
+        }
+        else {
+            $steps.Add([pscustomobject]@{ Field = ""; Value = "" }) | Out-Null
+            Send-SelSessionLine -Session $Session -Text "" -TraceContext $TraceContext
+        }
+
+        if ($saveSent) {
+            try {
+                $response = Read-SelSessionUntil -Session $Session -Pattern $waitPattern -TimeoutMs 3000 -TraceContext $TraceContext
+            }
+            catch {
+                break
+            }
+            if ($Session.Process.HasExited) {
+                break
+            }
+        }
+        else {
+            $response = Read-SelSessionUntil -Session $Session -Pattern $waitPattern -TimeoutMs 6000 -TraceContext $TraceContext -ThrowOnTimeout
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = $true
+        SaveSent = $saveSent
+        Output = $response
+        Steps = @($steps)
+    }
+}
+
+function Invoke-SelPlinkReIpCapture {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [AllowNull()]
+        [string]$TwoAcPassword,
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Target,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
+    $session = Start-SelPlinkSession -HostIp $HostIp -TraceContext $TraceContext
+
+    try {
+        $banner = Read-SelSessionAvailable -Session $session -InitialWaitMs 500 -TraceContext $TraceContext
+        Send-SelSessionLine -Session $session -Text "" -TraceContext $TraceContext
+        $prompt = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TraceContext $TraceContext -ThrowOnTimeout
+
+        Send-SelSessionLine -Session $session -Text "ID" -TraceContext $TraceContext
+        $idOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TraceContext $TraceContext -ThrowOnTimeout
+
+        $access = Enter-Sel2AcAccess -Session $session -Password $TwoAcPassword -TraceContext $TraceContext
+        if (-not $access.Success) {
+            throw "Unable to enter 2AC access for re-IP."
+        }
+
+        Send-SelSessionLine -Session $session -Text "SER" -TraceContext $TraceContext
+        $serOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TimeoutMs 5000 -TraceContext $TraceContext
+        Send-SelSessionLine -Session $session -Text "ETH" -TraceContext $TraceContext
+        $ethOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TimeoutMs 5000 -TraceContext $TraceContext
+
+        return [pscustomobject]@{
+            Banner = $banner
+            Prompt = $prompt
+            ID = $idOut
+            Access = $access
+            SER = $serOut
+            ETH = $ethOut
+            Session = $session
+        }
+    }
+    catch {
+        Stop-SelPlinkSession -Session $session
+        throw
+    }
+}
+
+function Invoke-SelPlinkIdentityCapture {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostIp,
+        [AllowNull()]
+        [string]$TwoAcPassword,
+        [AllowNull()]
+        [pscustomobject]$TraceContext
+    )
+
+    $promptPattern = "(?m)^\s*=(>>|>)?\s*$"
+    $session = Start-SelPlinkSession -HostIp $HostIp -TraceContext $TraceContext
+    try {
+        $banner = Read-SelSessionAvailable -Session $session -InitialWaitMs 500 -TraceContext $TraceContext
+        Send-SelSessionLine -Session $session -Text "" -TraceContext $TraceContext
+        $prompt = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TraceContext $TraceContext -ThrowOnTimeout
+
+        Send-SelSessionLine -Session $session -Text "ID" -TraceContext $TraceContext
+        $idOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TraceContext $TraceContext -ThrowOnTimeout
+
+        $serOut = ""
+        $ethOut = ""
+        $access = Enter-Sel2AcAccess -Session $session -Password $TwoAcPassword -TraceContext $TraceContext
+        if ($access.Success) {
+            Send-SelSessionLine -Session $session -Text "SER" -TraceContext $TraceContext
+            $serOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TimeoutMs 5000 -TraceContext $TraceContext
+            Send-SelSessionLine -Session $session -Text "ETH" -TraceContext $TraceContext
+            $ethOut = Read-SelSessionUntil -Session $session -Pattern $promptPattern -TimeoutMs 5000 -TraceContext $TraceContext
+        }
+
+        return [pscustomobject]@{
+            Banner = $banner
+            Prompt = $prompt
+            ID = $idOut
+            SER = $serOut
+            ETH = $ethOut
+            Access = $access
+        }
+    }
+    finally {
+        Stop-SelPlinkSession -Session $session
+    }
+}
+
 function Test-SelDesiredStateRowActive {
     param(
         [Parameter(Mandatory = $true)]
@@ -872,7 +1259,8 @@ function Resolve-SelReIpTarget {
         [string]$Gateway,
         [string]$PrimaryInterface,
         [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv"),
-        [switch]$PromptIfMissing
+        [switch]$PromptIfMissing,
+        [string]$DefaultIp
     )
 
     $resolvedIp = $Ip
@@ -901,7 +1289,7 @@ function Resolve-SelReIpTarget {
     }
 
     if ($PromptIfMissing) {
-        if (-not $resolvedIp) { $resolvedIp = Read-Host "Target IP" }
+        if (-not $resolvedIp) { $resolvedIp = Read-SelPromptWithDefault -Prompt "Target IP" -DefaultValue $DefaultIp }
         if (-not $resolvedMask) { $resolvedMask = Read-Host "Target subnet mask" }
         if (-not $resolvedGateway) { $resolvedGateway = Read-Host "Target gateway" }
         if (-not $resolvedPrimaryInterface) {
@@ -953,6 +1341,10 @@ function Update-SelDesiredStateObserved {
         [string]$Name,
         [Parameter(Mandatory = $false)]
         [string]$Description,
+        [Parameter(Mandatory = $false)]
+        [string]$LastAction = "inventory",
+        [Parameter(Mandatory = $false)]
+        [string]$LastResult = "success",
         [Parameter(Mandatory = $false)]
         [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv")
     )
@@ -1020,8 +1412,8 @@ function Update-SelDesiredStateObserved {
     if ($ObservedFirmwareLabel) { $existing.ObservedFirmwareLabel = $ObservedFirmwareLabel }
     if ($ObservedFid) { $existing.ObservedFid = $ObservedFid }
     $existing.LastSeen = (Get-Date).ToString("s")
-    $existing.LastAction = "inventory"
-    $existing.LastResult = "success"
+    $existing.LastAction = $LastAction
+    $existing.LastResult = $LastResult
 
     foreach ($row in $rows) {
         if (-not ($row.PSObject.Properties.Name -contains "Name")) {
@@ -1879,13 +2271,148 @@ function Invoke-SelReIp {
         $Serial = Read-Host "Serial"
     }
 
+    $trace = New-SelTraceContext -Enabled:$DebugTransport -Operation "reip" -HostIp $HostIp -Serial $Serial
     $defaults = Get-SelDefaults -Profile $Profile
+    $resolvedHost = Resolve-SelReIpHostIp -Serial $Serial -HostIp $HostIp -ProfileDefaultIp ([string]$defaults.DefaultIP)
+    $HostIp = [string]$resolvedHost.HostIp
+    $target = Resolve-SelReIpTarget -Serial $Serial -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -PromptIfMissing -DefaultIp ([string]$defaults.DefaultIP)
 
-    $target = Resolve-SelReIpTarget -Serial $Serial -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -PromptIfMissing
+    Write-SelProgress -Message ("Resolving re-IP target for serial {0}." -f $Serial) -TraceContext $trace
+    Write-SelProgress -Message ("Pinging current relay IP {0} before Telnet." -f $HostIp) -TraceContext $trace
+    $preflightPing = Invoke-SelPingCheck -HostIp $HostIp -TraceContext $trace
+    if (-not $preflightPing.Success) {
+        throw ("Current relay IP {0} is not reachable by ping. Aborting before Telnet." -f $HostIp)
+    }
 
+    Write-SelProgress -Message ("Opening Telnet session to {0}." -f $HostIp) -TraceContext $trace
+    $preCapture = Invoke-SelPlinkReIpCapture -HostIp $HostIp -TwoAcPassword ([string]$defaults.'2ACPassword') -Target $target -TraceContext $trace
+    $preIdParsed = ConvertFrom-SelIdOutput -Text $preCapture.ID
+    $preSerParsed = ConvertFrom-SelStaOutput -Text $preCapture.SER
+    $preEthParsed = ConvertFrom-SelEthOutput -Text $preCapture.ETH
+    $preEthModel = Get-SelEthernetModelFromEthParsed -EthParsed $preEthParsed
+
+    $startingSerial = [string]$preSerParsed.Serial
+    if (-not $startingSerial) {
+        $startingSerial = Get-SelSerialFromIdParsed -IdParsed $preIdParsed
+    }
+    if (-not [string]::IsNullOrWhiteSpace($startingSerial)) {
+        $Serial = $startingSerial
+    }
+
+    $confirmed = Confirm-SelReIpPlan -HostIp $HostIp -Target $target -ObservedSerial $startingSerial -PreEthParsed $preEthParsed
+    if (-not $confirmed) {
+        Stop-SelPlinkSession -Session $preCapture.Session
+        $cancelEvent = [pscustomobject]@{
+            timestamp = (Get-Date).ToString("s")
+            action = "reip"
+            runId = [string]$trace.RunId
+            hostIp = $HostIp
+            targetIp = $target.Ip
+            targetMask = $target.Mask
+            targetGateway = $target.Gateway
+            targetPrimaryInterface = $target.PrimaryInterface
+            targetNetPort = $target.NetPort
+            source = $target.Source
+            profile = $Profile
+            defaultsDefaultIp = [string]$defaults.DefaultIP
+            status = "cancelled"
+            accessLevelUsed = "2AC"
+            confirmationAccepted = $false
+            preflightPing = $preflightPing
+            identity = [pscustomobject]@{
+                requestedSerial = $Serial
+                observedSerial = $startingSerial
+            }
+            logRef = $trace.LogPath
+        }
+        Add-SelDeviceEvent -Serial $Serial -Event $cancelEvent
+        if ($PassThru) {
+            return [pscustomobject]@{
+                Action = "reip"
+                Status = "cancelled"
+                Serial = $Serial
+                HostIp = $HostIp
+                ObservedIp = $HostIp
+                PrimaryInterface = $target.PrimaryInterface
+                NetPort = $target.NetPort
+                IsNewDevice = $false
+                Changes = @()
+            }
+        }
+        Write-Output ("Re-IP cancelled for serial {0}." -f $Serial)
+        return
+    }
+
+    Write-SelProgress -Message "Applying SET P 1 changes at 2AC." -TraceContext $trace
+    $setResult = $null
+    try {
+        $setResult = Invoke-SelReIpSetPort1 -Session $preCapture.Session -Target $target -TraceContext $trace
+    }
+    finally {
+        Stop-SelPlinkSession -Session $preCapture.Session
+    }
+
+    Write-SelProgress -Message ("Monitoring new IP {0} with ping -n 100." -f $target.Ip) -TraceContext $trace
+    $recoveryPing = Wait-SelPingRecovery -HostIp $target.Ip -Count 100 -SettleSeconds 5 -TraceContext $trace
+    if (-not $recoveryPing.Success) {
+        $failEvent = [pscustomobject]@{
+            timestamp = (Get-Date).ToString("s")
+            action = "reip"
+            runId = [string]$trace.RunId
+            hostIp = $HostIp
+            targetIp = $target.Ip
+            targetMask = $target.Mask
+            targetGateway = $target.Gateway
+            targetPrimaryInterface = $target.PrimaryInterface
+            targetNetPort = $target.NetPort
+            source = $target.Source
+            profile = $Profile
+            defaultsDefaultIp = [string]$defaults.DefaultIP
+            status = "failed"
+            accessLevelUsed = "2AC"
+            confirmationAccepted = $true
+            preflightPing = $preflightPing
+            recoveryPing = $recoveryPing
+            preChange = [pscustomobject]@{
+                id = $preIdParsed
+                sta = $preSerParsed
+                eth = $preEthParsed
+            }
+            setPort1 = $setResult
+            note = "Relay did not respond on target IP during post-change ping monitoring."
+            logRef = $trace.LogPath
+        }
+        Add-SelDeviceEvent -Serial $Serial -Event $failEvent
+        throw ("Relay did not come back on target IP {0} during ping monitoring." -f $target.Ip)
+    }
+
+    Write-SelProgress -Message ("Reconnecting to {0} for identity verification." -f $target.Ip) -TraceContext $trace
+    $postCapture = Invoke-SelPlinkIdentityCapture -HostIp $target.Ip -TwoAcPassword ([string]$defaults.'2ACPassword') -TraceContext $trace
+    $postIdParsed = ConvertFrom-SelIdOutput -Text $postCapture.ID
+    $postSerParsed = ConvertFrom-SelStaOutput -Text $postCapture.SER
+    $postEthParsed = ConvertFrom-SelEthOutput -Text $postCapture.ETH
+    $postEthModel = Get-SelEthernetModelFromEthParsed -EthParsed $postEthParsed
+    $postSerial = [string]$postSerParsed.Serial
+    if (-not $postSerial) {
+        $postSerial = Get-SelSerialFromIdParsed -IdParsed $postIdParsed
+    }
+
+    $status = "success"
+    $note = ""
+    if ([string]::IsNullOrWhiteSpace($postSerial)) {
+        $status = "failed"
+        $note = "Post-change identity verification did not return a serial number."
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($startingSerial) -and $postSerial -ne $startingSerial) {
+        $status = "serial-mismatch-warning"
+        $note = ("Serial changed from {0} to {1} after re-IP." -f $startingSerial, $postSerial)
+    }
+
+    $metadata = Resolve-SelMetadata -DesiredStateMetadata (Get-SelDesiredStateMetadata -Serial $Serial) -DeviceMetadata (Get-SelDeviceMetadata -Serial $Serial)
     $event = [pscustomobject]@{
         timestamp = (Get-Date).ToString("s")
         action = "reip"
+        runId = [string]$trace.RunId
         hostIp = $HostIp
         targetIp = $target.Ip
         targetMask = $target.Mask
@@ -1895,22 +2422,48 @@ function Invoke-SelReIp {
         source = $target.Source
         profile = $Profile
         defaultsDefaultIp = [string]$defaults.DefaultIP
-        status = "scaffold"
-        note = "SET P 1 automation not implemented yet."
+        status = $status
+        accessLevelUsed = "2AC"
+        confirmationAccepted = $true
+        preflightPing = $preflightPing
+        recoveryPing = $recoveryPing
+        preChange = [pscustomobject]@{
+            id = $preIdParsed
+            sta = $preSerParsed
+            eth = $preEthParsed
+            ethernet = $preEthModel
+        }
+        postChange = [pscustomobject]@{
+            id = $postIdParsed
+            sta = $postSerParsed
+            eth = $postEthParsed
+            ethernet = $postEthModel
+        }
+        setPort1 = $setResult
+        identity = [pscustomobject]@{
+            requestedSerial = $Serial
+            observedSerial = $postSerial
+            startingSerial = $startingSerial
+            name = [string]$metadata.Name
+            description = [string]$metadata.Description
+        }
+        note = $note
+        logRef = $trace.LogPath
     }
 
     Add-SelDeviceEvent -Serial $Serial -Event $event
-    if ($PassThru) {
-        Write-Host ("ReIP scaffold target resolved: {0}/{1} gw {2} primary {3} (NETPORT={4}, source={5}, profile={6})" -f $target.Ip, $target.Mask, $target.Gateway, $target.PrimaryInterface, $target.NetPort, $target.Source, $Profile)
+    if ($status -ne "failed") {
+        Update-SelDesiredStateObserved -Serial $Serial -Name ([string]$metadata.Name) -Description ([string]$metadata.Description) -Mac ([string]$postEthParsed.MAC) -ObservedIP ([string]$postEthParsed.IP) -ObservedPrimaryInterface ([string]$postEthModel.primaryInterface) -ObservedActiveInterface ([string]$postEthModel.activeInterface) -ObservedNetMode ([string]$postEthModel.netMode) -ObservedFirmwareLabel (Get-SelFirmwareLabelFromFid -Fid ([string]$postSerParsed.FID)) -ObservedFid ([string]$postSerParsed.FID) -LastAction "reip" -LastResult $status
     }
-    else {
-        Write-Output ("ReIP scaffold target resolved: {0}/{1} gw {2} primary {3} (NETPORT={4}, source={5}, profile={6})" -f $target.Ip, $target.Mask, $target.Gateway, $target.PrimaryInterface, $target.NetPort, $target.Source, $Profile)
-    }
+
     if ($PassThru) {
+        Write-Host ("Re-IP completed for serial {0}: {1} -> {2} ({3})." -f $Serial, $HostIp, $target.Ip, $status)
         return [pscustomobject]@{
             Action = "reip"
-            Status = "scaffold"
+            Status = $status
             Serial = $Serial
+            Name = [string]$metadata.Name
+            Description = [string]$metadata.Description
             HostIp = $HostIp
             ObservedIp = $target.Ip
             PrimaryInterface = $target.PrimaryInterface
@@ -1919,6 +2472,8 @@ function Invoke-SelReIp {
             Changes = @()
         }
     }
+
+    Write-Output ("Re-IP completed for serial {0}: {1} -> {2} ({3})." -f $Serial, $HostIp, $target.Ip, $status)
 }
 
 function Invoke-SelFwUpgrade {
@@ -1951,9 +2506,18 @@ Export-ModuleMember -Function @(
     "ConvertFrom-SelStaOutput",
     "ConvertTo-SelPrimaryInterface",
     "ConvertTo-SelNetPortSelector",
+    "Read-SelPromptWithDefault",
+    "Invoke-SelPingCheck",
+    "Wait-SelPingRecovery",
+    "Confirm-SelReIpPlan",
+    "Invoke-SelPlinkReIpCapture",
+    "Invoke-SelReIpSetPort1",
+    "Invoke-SelPlinkIdentityCapture",
+    "Stop-SelPlinkSession",
     "ConvertFrom-SelSerEventRecords",
     "ConvertFrom-SelEthOutput",
     "Get-SelEthernetModelFromEthParsed",
+    "Resolve-SelReIpHostIp",
     "Resolve-SelReIpTarget",
     "Update-SelDesiredStateObserved",
     "Add-SelDeviceEvent",

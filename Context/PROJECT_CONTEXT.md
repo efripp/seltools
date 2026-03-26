@@ -98,6 +98,8 @@
 - Escalation probe order when `SET P 1` is denied: `ACC` -> `2AC` -> `C`.
 - If still denied, abort and instruct front-panel remediation.
 - If serial mismatch is detected after reconnect, warn and continue.
+- `reip` is not considered field-ready until at least one real `SET P 1` transcript is captured and reviewed.
+- The current risk is the interactive dialog tail: exact save/apply confirmation text, full prompt ordering, and disconnect wording still need grounding in a real relay transcript.
 
 ## Logging policy
 - One run log file per run: `logs/run-YYYYMMDD-HHMMSS.log`
@@ -152,3 +154,4 @@
   - Complete live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.
   - Add access escalation flow for denied `SET P 1` (`ACC` -> `2AC` -> `C`) and fail-safe handling.
   - Add reconnect identity checks and serial mismatch warning/report behavior for reip runs.
+  - Capture and retain at least one real `SET P 1` transcript before declaring `reip` ready for field use.

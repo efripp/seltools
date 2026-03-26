@@ -64,7 +64,7 @@
 - Escalation probe order for `SET P 1`: ACC -> 2AC -> C.
 - Reconnects to new IP and verifies identity.
 - Serial mismatch is warning-state (continue + report), not immediate abort.
-**Blockers:** need additional transcript coverage for variant prompt text
+**Blockers:** must provide at least one real `SET P 1` transcript before `reip` is considered ready. Transcript must show dialog entry, skipped unchanged fields, `IPADDR`, `SUBNETM`, `DEFRTR`, `NETPORT`, exact final save/apply prompt text, and disconnect behavior after save.
 
 ### 5) Firmware command surface (stub)
 **Acceptance:**

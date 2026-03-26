@@ -153,6 +153,21 @@ Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,De
     }
 }
 
+Describe "ReIP prompting and host resolution" {
+    It "uses the provided default IP when the prompt input is blank" {
+        Mock Read-Host { "" }
+
+        $result = Read-SelPromptWithDefault -Prompt "Target IP" -DefaultValue "192.168.1.2"
+        $result | Should Be "192.168.1.2"
+    }
+
+    It "prefers profile default IP for current host resolution when HostIp is blank" {
+        $result = Resolve-SelReIpHostIp -Serial "3241995707" -HostIp "" -ProfileDefaultIp "192.168.1.2"
+        $result.HostIp | Should Be "192.168.1.2"
+        $result.Source | Should Be "profile-default"
+    }
+}
+
 Describe "Ethernet interface mapping" {
     It "maps selector A/B to interface names 1A/1B" {
         (ConvertTo-SelPrimaryInterface -Selector "A") | Should Be "1A"
