@@ -41,6 +41,93 @@ Describe "CLI helper behavior" {
         }
     }
 
+    It "Invoke-SelDispatch forwards SkipInventoryUpdate for reip" {
+        Mock Invoke-SelReIp { }
+
+        Invoke-SelDispatch -CommandName "reip" -Serial "S1" -HostIp "192.168.1.2" -Ip "10.1.2.3" -Profile "site-a" -SkipInventoryUpdate
+
+        Assert-MockCalled Invoke-SelReIp -Times 1 -Exactly -ParameterFilter {
+            $Serial -eq "S1" -and $HostIp -eq "192.168.1.2" -and $Ip -eq "10.1.2.3" -and $Profile -eq "site-a" -and $SkipInventoryUpdate
+        }
+    }
+
+    It "Start-SelInteractiveMenu reip path no longer prompts for primary interface" {
+        Mock Invoke-SelDispatch { }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("2", "192.168.1.2", "10.1.2.3", "255.255.255.0", "10.1.2.1", "n", "5") | ForEach-Object { $inputs.Enqueue($_) }
+        $seenPrompts = New-Object 'System.Collections.Generic.List[string]'
+        $readInput = {
+            param([string]$Prompt)
+            [void]$seenPrompts.Add($Prompt)
+            if ($inputs.Count -gt 0) {
+                return $inputs.Dequeue()
+            }
+            return "5"
+        }
+
+        { Start-SelInteractiveMenu -ReadInput $readInput } | Should Not Throw
+        ($seenPrompts -contains "Primary interface (1A or 1B)") | Should Be $false
+        ($seenPrompts -contains "Serial") | Should Be $false
+        ($seenPrompts -contains "Profile") | Should Be $false
+    }
+
+    It "Start-SelInteractiveMenu reip path remembers SkipInventoryUpdate selection" {
+        Mock Invoke-SelDispatch { }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @(
+            "2", "192.168.1.2", "10.1.2.3", "", "", "y",
+            "2", "192.168.1.2", "10.1.2.4", "", "", "",
+            "5"
+        ) | ForEach-Object { $inputs.Enqueue($_) }
+        $seenPrompts = New-Object 'System.Collections.Generic.List[string]'
+        $readInput = {
+            param([string]$Prompt)
+            [void]$seenPrompts.Add($Prompt)
+            if ($inputs.Count -gt 0) {
+                return $inputs.Dequeue()
+            }
+            return "5"
+        }
+
+        { Start-SelInteractiveMenu -ReadInput $readInput } | Should Not Throw
+        @($seenPrompts | Where-Object { $_ -eq "Update inventory? [Y]" }).Count | Should BeGreaterThan 0
+    }
+
+    It "Start-SelInteractiveMenu reip path no longer prompts for serial or profile" {
+        Mock Invoke-SelDispatch { }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("2", "192.168.1.2", "10.1.2.3", "", "", "n", "5") | ForEach-Object { $inputs.Enqueue($_) }
+        $seenPrompts = New-Object 'System.Collections.Generic.List[string]'
+        $readInput = {
+            param([string]$Prompt)
+            [void]$seenPrompts.Add($Prompt)
+            if ($inputs.Count -gt 0) {
+                return $inputs.Dequeue()
+            }
+            return "5"
+        }
+
+        { Start-SelInteractiveMenu -ReadInput $readInput } | Should Not Throw
+        ($seenPrompts -contains "Serial") | Should Be $false
+        ($seenPrompts -contains "Profile") | Should Be $false
+        ($seenPrompts -contains "Host IP") | Should Be $true
+        ($seenPrompts -contains "Target IP") | Should Be $true
+        ($seenPrompts -contains "Update inventory? [N]") | Should Be $true
+    }
+
+    It "Invoke-SelDispatch routes reip without requiring Serial" {
+        Mock Invoke-SelReIp { }
+
+        Invoke-SelDispatch -CommandName "reip" -HostIp "192.168.1.2" -Ip "10.1.2.3" -Profile "site-a"
+
+        Assert-MockCalled Invoke-SelReIp -Times 1 -Exactly -ParameterFilter {
+            [string]::IsNullOrWhiteSpace($Serial) -and $HostIp -eq "192.168.1.2" -and $Ip -eq "10.1.2.3" -and $Profile -eq "site-a"
+        }
+    }
+
     It "Invoke-SelDispatch forwards DebugTransport switch" {
         Mock Invoke-SelInventory { }
 
@@ -130,5 +217,24 @@ Describe "CLI helper behavior" {
 
         { Show-SelInventoryBrowserExitMenu -ReadInput $readInput } | Should Not Throw
         Assert-MockCalled Stop-SelInventoryBrowserService -Times 0
+    }
+
+    It "Write-SelRunReport includes reip IP transition details" {
+        $result = [pscustomobject]@{
+            Action = "reip"
+            Status = "success"
+            Serial = "3250985195"
+            HostIp = "192.168.1.2"
+            TargetIp = "192.168.1.3"
+            SkipInventoryUpdate = $true
+        }
+
+        $output = & {
+            Write-SelRunReport -Results @($result)
+        } 6>&1
+
+        (($output | ForEach-Object { $_.ToString() }) -join "`n") | Should Match "Re-IP actions: 1"
+        (($output | ForEach-Object { $_.ToString() }) -join "`n") | Should Match "192\.168\.1\.2 -> 192\.168\.1\.3"
+        (($output | ForEach-Object { $_.ToString() }) -join "`n") | Should Match "inventory update skipped"
     }
 }

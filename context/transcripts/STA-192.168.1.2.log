@@ -1,0 +1,45 @@
+TERMINAL SERVER
+
+=
+ACC
+Password: ? *****
+
+SEL-751                                  Date: 03/28/2026   Time: 13:36:49.890
+FEEDER RELAY                             Time Source: Internal
+
+Level 1
+
+=>
+STA
+
+SEL-751                                  Date: 03/28/2026   Time: 13:36:49.893
+FEEDER RELAY                             Time Source: Internal
+
+Serial Num = 3250985195     FID = SEL-751-R402-V0-Z102100-D20241231
+CID = B790                  PART NUM = 751001ACA4A2A851G10
+
+SELF TESTS (W=Warn)
+  FPGA  GPSB  HMI   RAM   ROM   CR_RAM  NON_VOL  CLOCK  CID_FILE  +0.675V
+  OK    OK    OK    OK    OK    OK      OK       OK     OK        0.68
+
+  +0.675VD  +1.0V  +1.1V  +1.35V  +1.8V  +3.3V  +3.75V  +5.0V  -1.25V  -5.0V
+  0.68      1.00   1.09   1.34    1.79   3.31   3.78    4.93   -1.26   -5.11
+
+  BATT
+  2.94
+
+Option Cards
+  CARD_C  CARD_D  CARD_E  CARD_Z
+  OK      OK      OK      OK
+
+Offsets
+   IA    IB    IC    IN    VA    VB    VC
+  0     0     0     0     0     0     0
+
+  Relay Enabled
+
+=>
+EXIT
+
+SEL-751                                  Date: 03/28/2026   Time: 13:36:49.898
+FEEDER RELAY                             Time Source: Internal

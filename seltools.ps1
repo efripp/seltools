@@ -10,7 +10,8 @@ param(
     [string]$Gateway,
     [string]$PrimaryInterface,
     [string]$Profile = "factory",
-    [switch]$DebugTransport
+    [switch]$DebugTransport,
+    [switch]$SkipInventoryUpdate
 )
 
 $modulePath = Join-Path $PSScriptRoot "src\SelTools\SelTools.psm1"
@@ -50,6 +51,28 @@ function Get-SelPromptValue {
     return $input
 }
 
+function Get-SelPromptBoolValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
+        [bool]$CurrentValue,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ReadInput
+    )
+
+    $defaultLabel = if ($CurrentValue) { "Y" } else { "N" }
+    $input = (& $ReadInput ("{0} [{1}]" -f $Label, $defaultLabel))
+    if ([string]::IsNullOrWhiteSpace($input)) {
+        return $CurrentValue
+    }
+
+    switch -Regex ($input.Trim()) {
+        '^(?i:y|yes|true|1)$' { return $true }
+        '^(?i:n|no|false|0)$' { return $false }
+        default { return $CurrentValue }
+    }
+}
+
 function Show-SelMenu {
     Write-Host ""
     Write-Host "SelTools Main Menu"
@@ -73,7 +96,7 @@ function Show-SelHelp {
     Write-Host "Examples:"
     Write-Host "  .\seltools.ps1 inventory -HostIp 192.168.1.2"
     Write-Host "  .\seltools.ps1 inventory -Serial 3241995707"
-    Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1 -PrimaryInterface 1A"
+    Write-Host "  .\seltools.ps1 reip -Serial 3241995707 -Ip 192.168.1.101 -Mask 255.255.255.0 -Gateway 192.168.1.1"
     Write-Host "  .\seltools.ps1 fwupgrade -Serial 3241995707 -HostIp 192.168.1.2"
 }
 
@@ -223,7 +246,8 @@ function Invoke-SelDispatch {
         [string]$PrimaryInterface,
         [string]$Profile = "factory",
         [switch]$DebugTransport,
-        [switch]$PassThru
+        [switch]$PassThru,
+        [switch]$SkipInventoryUpdate
     )
 
     switch ($CommandName.ToLowerInvariant()) {
@@ -231,7 +255,7 @@ function Invoke-SelDispatch {
             Invoke-SelInventory -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
         }
         "reip" {
-            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru
+            Invoke-SelReIp -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru:$PassThru -SkipInventoryUpdate:$SkipInventoryUpdate
         }
         "fwupgrade" {
             Invoke-SelFwUpgrade -Serial $Serial -HostIp $HostIp -Profile $Profile -DebugTransport:$DebugTransport
@@ -253,6 +277,7 @@ function Write-SelRunReport {
     }
 
     $inventoryItems = @($items | Where-Object { $_.Action -eq "inventory" })
+    $reipItems = @($items | Where-Object { $_.Action -eq "reip" })
     $newItems = @($inventoryItems | Where-Object { $_.IsNewDevice })
     $changedItems = @($inventoryItems | Where-Object { -not $_.IsNewDevice -and $_.Changes -and $_.Changes.Count -gt 0 })
 
@@ -274,6 +299,21 @@ function Write-SelRunReport {
             }
         }
     }
+
+    Write-Host ("  Re-IP actions: {0}" -f $reipItems.Count)
+    if ($reipItems.Count -eq 0) {
+        Write-Host "  No re-IP actions recorded."
+    }
+    else {
+        foreach ($item in $reipItems) {
+            $serialLabel = if ([string]::IsNullOrWhiteSpace([string]$item.Serial)) { "(unknown)" } else { [string]$item.Serial }
+            $sourceIp = if ([string]::IsNullOrWhiteSpace([string]$item.HostIp)) { "(unknown)" } else { [string]$item.HostIp }
+            $targetIp = if ([string]::IsNullOrWhiteSpace([string]$item.TargetIp)) { "(unknown)" } else { [string]$item.TargetIp }
+            $statusLabel = if ([string]::IsNullOrWhiteSpace([string]$item.Status)) { "unknown" } else { [string]$item.Status }
+            $skipLabel = if ($item.PSObject.Properties.Name -contains "SkipInventoryUpdate" -and $item.SkipInventoryUpdate) { " [inventory update skipped]" } else { "" }
+            Write-Host ("    - Serial {0}, {1} -> {2}, status={3}{4}" -f $serialLabel, $sourceIp, $targetIp, $statusLabel, $skipLabel)
+        }
+    }
 }
 
 function Start-SelInteractiveMenu {
@@ -286,10 +326,12 @@ function Start-SelInteractiveMenu {
         [string]$PrimaryInterface,
         [string]$Profile = "factory",
         [switch]$DebugTransport,
+        [switch]$SkipInventoryUpdate,
         [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
     )
 
     $runResults = @()
+    $reipUpdateInventory = $false
 
     while ($true) {
         Show-SelMenu
@@ -334,18 +376,17 @@ function Start-SelInteractiveMenu {
                 }
             }
             "2" {
-                $HostIp = Resolve-SelMenuHostIpDefault -CurrentHostIp $HostIp -Profile $Profile
-                $Serial = Get-SelPromptValue -Label "Serial" -CurrentValue $Serial -ReadInput $ReadInput
                 $HostIp = Get-SelPromptValue -Label "Host IP" -CurrentValue $HostIp -ReadInput $ReadInput
                 $Ip = Get-SelPromptValue -Label "Target IP" -CurrentValue $Ip -ReadInput $ReadInput
                 $Mask = Get-SelPromptValue -Label "Target subnet mask" -CurrentValue $Mask -ReadInput $ReadInput
                 $Gateway = Get-SelPromptValue -Label "Target gateway" -CurrentValue $Gateway -ReadInput $ReadInput
-                $PrimaryInterface = Get-SelPromptValue -Label "Primary interface (1A or 1B)" -CurrentValue $PrimaryInterface -ReadInput $ReadInput
-                $Profile = Get-SelPromptValue -Label "Profile" -CurrentValue $Profile -ReadInput $ReadInput
+                $reipUpdateInventory = Get-SelPromptBoolValue -Label "Update inventory?" -CurrentValue $reipUpdateInventory -ReadInput $ReadInput
+                $SkipInventoryUpdate = (-not $reipUpdateInventory)
                 try {
-                    $result = Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+                    $result = Invoke-SelDispatch -CommandName "reip" -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru -SkipInventoryUpdate:$SkipInventoryUpdate
                     if ($null -ne $result) {
                         $runResults += $result
+                        Write-SelRunReport -Results @($result)
                     }
                 }
                 catch {
@@ -385,9 +426,9 @@ if ($MyInvocation.InvocationName -eq ".") {
 Show-SelBanner
 
 if ($Command) {
-    $result = Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru
+    $result = Invoke-SelDispatch -CommandName $Command -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -PassThru -SkipInventoryUpdate:$SkipInventoryUpdate
     Write-SelRunReport -Results @($result)
 }
 else {
-    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport
+    Start-SelInteractiveMenu -Serial $Serial -HostIp $HostIp -Ip $Ip -Mask $Mask -Gateway $Gateway -PrimaryInterface $PrimaryInterface -Profile $Profile -DebugTransport:$DebugTransport -SkipInventoryUpdate:$SkipInventoryUpdate
 }

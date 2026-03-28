@@ -102,6 +102,12 @@
 **Reason:** `STA` can stall or paginate on some relays, while `SER` reliably returns serial/FID/CID near the top of output.
 **Consequence:** Inventory sequence is now `ID -> ACC -> SER -> ETH`; serial parsing accepts both `Serial Num` and `Serial No`.
 
+## ADR-0022: Re-IP identity capture uses STA instead of SER
+**Decision:** Use `STA` for re-IP identity capture and reconnect verification; keep `SER` out of the re-IP path.
+**Alternatives:** Continue using `SER` for re-IP identity capture.
+**Reason:** `STA` returns serial/FID/CID quickly without dumping SER event history, which keeps re-IP runs shorter and quieter.
+**Consequence:** Re-IP pre/post capture uses `ID -> ACC -> 2AC -> STA -> ETH`; inventory remains on `SER`.
+
 ## ADR-0018: End-of-run summary and metadata fields
 **Decision:** Emit an end-of-run summary and support `Name`/`Description` in both desired-state rows and per-device JSON.
 **Alternatives:** No run summary and serial-only metadata.

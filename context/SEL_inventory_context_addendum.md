@@ -11,14 +11,14 @@ commands:
 
 1.  `ID`
 2.  escalate to **ACC**
-3.  `STA`
+3.  `SER`
 4.  `ETH`
 
 Example sequence:
 
     ID
     ACC
-    STA
+    SER
     ETH
 
 Behavior rules:
@@ -26,7 +26,7 @@ Behavior rules:
 -   `ID` must always run first.
 -   `ACC` escalation is attempted once.
 -   If ACC fails:
-    -   `STA` and `ETH` are skipped
+    -   `SER` and `ETH` are skipped
     -   inventory still records the `ID` results.
 
 ------------------------------------------------------------------------
@@ -36,7 +36,7 @@ Behavior rules:
   Command   Access Required
   --------- -----------------
   ID        none
-  STA       ACC
+  SER       ACC
   ETH       ACC
 
 ------------------------------------------------------------------------
@@ -86,6 +86,11 @@ Example output:
 Rule:
 
 > Serial Num is the authoritative identity of the relay.
+
+Current usage note:
+
+- Inventory uses `SER` for live pull because it reliably returns serial/FID/CID near the top of output.
+- Re-IP uses `STA` for identity confirmation because it avoids dumping SER event history.
 
 ------------------------------------------------------------------------
 
@@ -324,8 +329,9 @@ Therefore, **the tool must probe** and escalate as needed:
    - `SUBNETM` (subnet mask)
    - `DEFRTR` (default router / gateway)
 6. Continue through prompts and **Save** when prompted
-7. Expect Telnet session to drop after applying IP change
-8. Reconnect to the new IP and verify identity (Serial via `STA` or equivalent)
+7. Treat the Telnet session as effectively ended immediately after save
+8. Do not assume a reboot; begin reconnect attempts to the new IP almost immediately
+9. Verify identity on the new IP (Serial via `STA` or equivalent)
 
 ## Key fields shown in the SET P 1 dialog
 
@@ -377,7 +383,16 @@ Recommended detection strings:
 - `"Password:"`
 - `"Level 1"`, `"Level 2"` (as informational, not sole truth)
 - Field prompt lines containing `:=` and ending with `?`
+- `Save changes (Y,N)?`
+- `Settings Saved`
 
 Control characters (e.g., `\x02`, `\x03`) should be stripped before parsing.
+
+Important logging nuance:
+
+- In the 2026-03-28 PuTTY transcript, the log records `Settings Saved` and an apparent returned prompt after save.
+- From the operator perspective, the usable live session ended immediately at save.
+- Automation should therefore treat any trailing prompt text after save as possible buffered/log artifact, not proof the relay stayed connected.
+- The relay does not appear to reboot when the IP is changed; the new IP can become reachable nearly immediately.
 
 Generated: 2026-03-05T01:16:29.642404

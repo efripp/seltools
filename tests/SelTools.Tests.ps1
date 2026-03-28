@@ -72,6 +72,12 @@ Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,De
         $rows[0].ObservedActiveInterface | Should Be "1B"
         $rows[0].ObservedNetMode | Should Be "FAILOVER"
     }
+
+    It "returns blank device metadata when serial is empty" {
+        $meta = Get-SelDeviceMetadata -Serial ""
+        $meta.Name | Should Be ""
+        $meta.Description | Should Be ""
+    }
 }
 
 Describe "Defaults profile selection" {
@@ -132,8 +138,8 @@ Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,De
         $result.Ip | Should Be "10.1.2.3"
         $result.Mask | Should Be "255.255.255.0"
         $result.Gateway | Should Be "10.1.2.1"
-        $result.PrimaryInterface | Should Be "1A"
-        $result.NetPort | Should Be "A"
+        $result.PrimaryInterface | Should Be ""
+        $result.NetPort | Should Be ""
     }
 
     It "falls back to desiredstate.csv when CLI values are missing" {
@@ -147,9 +153,16 @@ Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,De
         $result.Ip | Should Be "192.168.1.101"
         $result.Mask | Should Be "255.255.255.0"
         $result.Gateway | Should Be "192.168.1.1"
-        $result.PrimaryInterface | Should Be "1B"
-        $result.NetPort | Should Be "B"
+        $result.PrimaryInterface | Should Be ""
+        $result.NetPort | Should Be ""
         $result.Source | Should Be "desiredstate"
+    }
+
+    It "allows mask and gateway to remain blank when only IP is supplied" {
+        $result = Resolve-SelReIpTarget -Ip "10.1.2.3"
+        $result.Ip | Should Be "10.1.2.3"
+        $result.Mask | Should Be ""
+        $result.Gateway | Should Be ""
     }
 }
 
@@ -165,6 +178,225 @@ Describe "ReIP prompting and host resolution" {
         $result = Resolve-SelReIpHostIp -Serial "3241995707" -HostIp "" -ProfileDefaultIp "192.168.1.2"
         $result.HostIp | Should Be "192.168.1.2"
         $result.Source | Should Be "profile-default"
+    }
+}
+
+Describe "ReIP persistence control" {
+    It "skips device event and desired state updates when SkipInventoryUpdate is set" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = "192.168.1.2"
+                ACCPassword = "OTTER"
+                '2ACPassword' = "TAIL"
+            }
+        }
+        Mock Resolve-SelReIpHostIp -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Source = "cli" } }
+        Mock Resolve-SelReIpTarget -ModuleName SelTools {
+            [pscustomobject]@{
+                Serial = "3250985195"
+                Ip = "192.168.1.3"
+                Mask = ""
+                Gateway = ""
+                PrimaryInterface = ""
+                NetPort = ""
+                Source = "cli"
+            }
+        }
+        Mock Invoke-SelPingCheck -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Success = $true } }
+        Mock Invoke-SelPlinkReIpCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                ID = "pre-id"
+                SER = "pre-ser"
+                ETH = "pre-eth"
+                Access = [pscustomobject]@{ AccessLevel = "2AC" }
+                Session = [pscustomobject]@{ Process = [pscustomobject]@{ HasExited = $false } }
+            }
+        }
+        Mock ConvertFrom-SelIdOutput -ModuleName SelTools { [pscustomobject]@{} }
+        Mock ConvertFrom-SelStaOutput -ModuleName SelTools {
+            param([string]$Text)
+            if ($Text -eq "pre-ser") {
+                return [pscustomobject]@{ Serial = "3250985195"; FID = "FID-PRE" }
+            }
+            return [pscustomobject]@{ Serial = "3250985195"; FID = "FID-POST" }
+        }
+        Mock ConvertFrom-SelEthOutput -ModuleName SelTools {
+            param([string]$Text)
+            if ($Text -eq "pre-eth") {
+                return [pscustomobject]@{ IP = "192.168.1.2"; Mask = "255.255.255.0"; Gateway = "192.168.1.1"; MAC = "00-30-A7-42-2F-B2" }
+            }
+            return [pscustomobject]@{ IP = "192.168.1.3"; Mask = "255.255.255.0"; Gateway = "192.168.1.1"; MAC = "00-30-A7-42-2F-B2" }
+        }
+        Mock Get-SelEthernetModelFromEthParsed -ModuleName SelTools { [pscustomobject]@{ primaryInterface = "1A"; activeInterface = "1A"; netMode = "FAILOVER" } }
+        Mock Get-SelSerialFromIdParsed -ModuleName SelTools { "3250985195" }
+        Mock Confirm-SelReIpPlan -ModuleName SelTools { $true }
+        Mock Invoke-SelReIpSetPort1 -ModuleName SelTools { [pscustomobject]@{ Success = $true; SaveSent = $true; SettingsSaved = $true; Steps = @() } }
+        Mock Stop-SelPlinkSession -ModuleName SelTools { }
+        Mock Invoke-SelFastReconnectCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                Success = $true
+                AttemptCount = 1
+                Capture = [pscustomobject]@{
+                    ID = "post-id"
+                    SER = "post-ser"
+                    ETH = "post-eth"
+                }
+                ErrorMessage = ""
+            }
+        }
+        Mock Resolve-SelMetadata -ModuleName SelTools { [pscustomobject]@{ Name = "Feeder 751"; Description = "Primary feeder relay" } }
+        Mock Get-SelDesiredStateMetadata -ModuleName SelTools { [pscustomobject]@{} }
+        Mock Get-SelDeviceMetadata -ModuleName SelTools { [pscustomobject]@{} }
+        Mock Add-SelDeviceEvent -ModuleName SelTools { }
+        Mock Update-SelDesiredStateObserved -ModuleName SelTools { }
+
+        $result = Invoke-SelReIp -Serial "3250985195" -HostIp "192.168.1.2" -Ip "192.168.1.3" -Profile "factory" -SkipInventoryUpdate -PassThru
+
+        $result.Status | Should Be "success"
+        $result.SkipInventoryUpdate | Should Be $true
+        Assert-MockCalled ConvertFrom-SelStaOutput -ModuleName SelTools -Times 2
+        Assert-MockCalled Add-SelDeviceEvent -ModuleName SelTools -Times 0
+        Assert-MockCalled Update-SelDesiredStateObserved -ModuleName SelTools -Times 0
+    }
+
+    It "does not throw when no serial is available after reconnect" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = ""
+                ACCPassword = "OTTER"
+                '2ACPassword' = "TAIL"
+            }
+        }
+        Mock Resolve-SelReIpHostIp -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Source = "cli" } }
+        Mock Resolve-SelReIpTarget -ModuleName SelTools {
+            [pscustomobject]@{
+                Serial = ""
+                Ip = "192.168.1.3"
+                Mask = ""
+                Gateway = ""
+                PrimaryInterface = ""
+                NetPort = ""
+                Source = "cli"
+            }
+        }
+        Mock Invoke-SelPingCheck -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Success = $true } }
+        Mock Invoke-SelPlinkReIpCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                ID = "pre-id"
+                SER = ""
+                ETH = "pre-eth"
+                Access = [pscustomobject]@{ AccessLevel = "2AC" }
+                Session = [pscustomobject]@{ Process = [pscustomobject]@{ HasExited = $false } }
+            }
+        }
+        Mock ConvertFrom-SelIdOutput -ModuleName SelTools { [pscustomobject]@{} }
+        Mock ConvertFrom-SelStaOutput -ModuleName SelTools { [pscustomobject]@{ Serial = ""; FID = "" } }
+        Mock ConvertFrom-SelEthOutput -ModuleName SelTools {
+            param([string]$Text)
+            [pscustomobject]@{ IP = "192.168.1.3"; Mask = "255.255.255.0"; Gateway = "192.168.1.1"; MAC = "00-30-A7-42-2F-B2" }
+        }
+        Mock Get-SelEthernetModelFromEthParsed -ModuleName SelTools { [pscustomobject]@{ primaryInterface = "1A"; activeInterface = "1A"; netMode = "FAILOVER" } }
+        Mock Get-SelSerialFromIdParsed -ModuleName SelTools { "" }
+        Mock Confirm-SelReIpPlan -ModuleName SelTools { $true }
+        Mock Invoke-SelReIpSetPort1 -ModuleName SelTools { [pscustomobject]@{ Success = $true; SaveSent = $true; SettingsSaved = $true; Steps = @() } }
+        Mock Stop-SelPlinkSession -ModuleName SelTools { }
+        Mock Invoke-SelFastReconnectCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                Success = $true
+                AttemptCount = 1
+                Capture = [pscustomobject]@{
+                    ID = "post-id"
+                    SER = ""
+                    ETH = "post-eth"
+                }
+                ErrorMessage = ""
+            }
+        }
+        Mock Resolve-SelMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Get-SelDesiredStateMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Get-SelDeviceMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Add-SelDeviceEvent -ModuleName SelTools { }
+        Mock Update-SelDesiredStateObserved -ModuleName SelTools { }
+
+        $result = Invoke-SelReIp -HostIp "192.168.1.2" -Ip "192.168.1.3" -Profile "factory" -PassThru
+
+        $result.Status | Should Be "failed"
+        $result.Serial | Should Be ""
+        Assert-MockCalled Add-SelDeviceEvent -ModuleName SelTools -Times 0
+        Assert-MockCalled Update-SelDesiredStateObserved -ModuleName SelTools -Times 0
+    }
+}
+
+Describe "ReIP capture command selection" {
+    It "uses STA and not SER when IncludeSer is set for reip capture" {
+        $global:sentLines = @()
+        Mock Start-SelPlinkSession -ModuleName SelTools {
+            [pscustomobject]@{
+                Process = [pscustomobject]@{ HasExited = $false }
+            }
+        }
+        Mock Read-SelSessionAvailable -ModuleName SelTools { "TERMINAL SERVER" }
+        Mock Read-SelSessionUntil -ModuleName SelTools { "=" }
+        Mock Send-SelSessionLine -ModuleName SelTools {
+            param(
+                [pscustomobject]$Session,
+                [string]$Text
+            )
+            $global:sentLines += $Text
+        }
+        Mock Enter-SelReIpAccess -ModuleName SelTools { [pscustomobject]@{ Success = $true; AccessLevel = "2AC" } }
+        Mock Stop-SelPlinkSession -ModuleName SelTools { }
+
+        $capture = Invoke-SelPlinkReIpCapture -HostIp "192.168.1.2" -AccPassword "OTTER" -TwoAcPassword "TAIL" -Target ([pscustomobject]@{ Ip = "192.168.1.3" }) -IncludeSer
+
+        ($global:sentLines -contains "STA") | Should Be $true
+        ($global:sentLines -contains "SER") | Should Be $false
+        ($global:sentLines -contains "ETH") | Should Be $true
+    }
+
+    It "fast reconnect passes IncludeSer through to identity capture" {
+        Mock Invoke-SelPlinkIdentityCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                ID = "post-id"
+                SER = ""
+                ETH = "post-eth"
+                Access = [pscustomobject]@{ Success = $true }
+            }
+        }
+
+        $result = Invoke-SelFastReconnectCapture -HostIp "192.168.1.3" -AccPassword "OTTER" -TwoAcPassword "TAIL" -Attempts 1 -IncludeSer:$false
+
+        $result.Success | Should Be $true
+        Assert-MockCalled Invoke-SelPlinkIdentityCapture -ModuleName SelTools -Times 1 -Exactly -ParameterFilter {
+            $HostIp -eq "192.168.1.3" -and -not $IncludeSer
+        }
+    }
+
+    It "uses STA and not SER when IncludeSer is set for identity capture" {
+        $global:sentLines = @()
+        Mock Start-SelPlinkSession -ModuleName SelTools {
+            [pscustomobject]@{
+                Process = [pscustomobject]@{ HasExited = $false }
+            }
+        }
+        Mock Read-SelSessionAvailable -ModuleName SelTools { "TERMINAL SERVER" }
+        Mock Read-SelSessionUntil -ModuleName SelTools { "=" }
+        Mock Send-SelSessionLine -ModuleName SelTools {
+            param(
+                [pscustomobject]$Session,
+                [string]$Text
+            )
+            $global:sentLines += $Text
+        }
+        Mock Enter-SelReIpAccess -ModuleName SelTools { [pscustomobject]@{ Success = $true; AccessLevel = "2AC" } }
+        Mock Stop-SelPlinkSession -ModuleName SelTools { }
+
+        $capture = Invoke-SelPlinkIdentityCapture -HostIp "192.168.1.2" -AccPassword "OTTER" -TwoAcPassword "TAIL" -IncludeSer
+
+        ($global:sentLines -contains "STA") | Should Be $true
+        ($global:sentLines -contains "SER") | Should Be $false
+        ($global:sentLines -contains "ETH") | Should Be $true
+        $capture.SER | Should Be "="
     }
 }
 

@@ -21,15 +21,20 @@
 - Re-IP scaffold dispatch/prompt flow is wired into CLI/menu paths
 - Re-IP target precedence resolver implemented (CLI > desiredstate by serial > prompt)
 - Re-IP scaffold event persistence and `-PassThru` run-report object implemented
+- Re-IP live `SET P 1` flow implemented for `IPADDR`, `SUBNETM`, `DEFRTR`
+- Re-IP now uses `ACC -> 2AC`, `STA`, and `ETH` for confirmation/reconnect verification
+- Re-IP menu simplified to host-IP-driven prompts without serial/profile entry
+- Re-IP menu now prompts `Update inventory? [N]` and remembers the in-session choice
+- Re-IP run report now shows old IP -> new IP and prints immediately after completion
+- Real `SET P 1` and `STA` transcripts captured under `context/transcripts/`
 - Normalized SEL-751 Ethernet model added to inventory parsing (`portGroup=1`, `interfaces=1A/1B`, `primaryInterface`, `activeInterface`, `configuredPrimarySelector`, `netMode`)
 - Desired-state schema extended for interface state (`DesiredPrimaryInterface`, `ObservedPrimaryInterface`, `ObservedActiveInterface`, `ObservedNetMode`)
 - CLI/scaffold reip selector added as `-PrimaryInterface 1A|1B` with mapping to relay `NETPORT A|B`
 - Backward-compat alias writes retained (`primaryPort`/`activePort`) while normalized fields are preferred
 
 ## In progress
-- Re-IP live Telnet implementation (`SET P 1` automation + reconnect verify)
-- Re-IP access escalation flow when denied (`ACC` -> `2AC` -> `C`)
-- Re-IP serial verification/reporting behavior after reconnect (warning state on mismatch)
+- Context/doc cleanup to match the live re-IP workflow and current menu behavior
+- Decide local ignore policy for generated runtime artifacts (`logs/`, local device snapshots)
 
 ## Next
 ### 1) CLI scaffolding
@@ -60,11 +65,10 @@
 
 ### 4) Re-IP workflow (next major implementation)
 **Acceptance:**
-- Value precedence: CLI > desiredstate by serial > prompt.
-- Escalation probe order for `SET P 1`: ACC -> 2AC -> C.
-- Reconnects to new IP and verifies identity.
-- Serial mismatch is warning-state (continue + report), not immediate abort.
-**Blockers:** must provide at least one real `SET P 1` transcript before `reip` is considered ready. Transcript must show dialog entry, skipped unchanged fields, `IPADDR`, `SUBNETM`, `DEFRTR`, `NETPORT`, exact final save/apply prompt text, and disconnect behavior after save.
+- Keep transcript-backed prompt handling stable as more relay variants are observed.
+- Preserve single-device address-change scope (`IPADDR`, `SUBNETM`, `DEFRTR`) unless interface switching is deliberately reintroduced later.
+- Serial mismatch remains warning-state (continue + report), not immediate abort.
+**Blockers:** none for bench use; more live coverage is still desired before treating re-IP as field-automation ready.
 
 ### 5) Firmware command surface (stub)
 **Acceptance:**
@@ -76,4 +80,4 @@
 **Acceptance:**
 - Pester tests for parser logic, CSV row filtering, and input precedence resolver.
 - Pester tests for CLI argument handling and fallback prompting behavior.
-**Blockers:** add integration-like transcript tests as Telnet/reip matures
+**Blockers:** add more transcript/integration-like coverage as Telnet/reip matures

@@ -1,0 +1,175 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.03.28 12:31:33 =~=~=~=~=~=~=~=~=~=~=~=
+TERMINAL SERVER
+
+
+=acc
+Password: ? *****
+
+SEL-751                                  Date: 03/28/2026   Time: 10:31:56.593
+FEEDER RELAY                             Time Source: Internal
+
+Level 1
+
+=>A2C
+"A2C" unknown.  Enter "HELP" for more information.
+
+=>2AC
+Password: ? ****
+
+SEL-751                                  Date: 03/28/2026   Time: 10:32:10.654
+FEEDER RELAY                             Time Source: Internal
+
+Level 2
+
+=>>SET 1 P
+"P" unknown.  Enter "HELP SET 1" for more information.
+
+=>>SET P1 
+"P1" unknown.  Enter "HELP SET" for more information.
+
+=>>SET P 1
+
+Port 1
+
+Port Enable
+
+ENABLE PORT (Y, N)                             EPORT   := Y         ? 
+
+Firmware Upgrade Configuration
+
+ENABLE ETHERNET FIRMWARE UPGRADE (Y, N)        EETHFWU := N         ? 
+
+Ethernet Port Settings
+
+IP ADDRESS [zzz.yyy.xxx.www] (15 characters)
+IPADDR  := 192.168.1.2
+? 192.168.1.3
+SUBNET MASK [zzz.yyy.xxx.www] (15 characters)
+SUBNETM := 255.255.255.0
+? 
+DEFAULT ROUTER [zzz.yyy.xxx.www] (15 characters)
+DEFRTR  := 192.168.1.1
+? 
+ENABLE TCP KEEP-ALIVE (Y, N)                   ETCPKA  := Y         ? 
+TCP KEEP-ALIVE IDLE RANGE (1-20 sec)           KAIDLE  := 10        ? 
+TCP KEEP-ALIVE INTERVAL RANGE (1-20 sec)       KAINTV  := 1         ? 
+TCP KEEP-ALIVE COUNT RANGE (1-20)              KACNT   := 6         ? 
+OPERATING MODE (FIXED, FAILOVER, SWITCHED, PRP)
+                                               NETMODE := FAILOVER  ? 
+FAILOVER TIMEOUT (OFF,0.10-65.00 sec)          FTIME   := 1.00      ? 
+PRIMARY NETPORT (A, B)                         NETPORT := A         ? 
+
+Telnet Configuration
+
+ENABLE TELNET (Y, N)                           ETELNET := Y         ? 
+MAXIMUM ACCESS LEVEL (1,2, C)                  MAXACC  := C         ? 
+LANGUAGE (ENGLISH, SPANISH)                    LANG    := ENGLISH   ? 
+TELNET PORT (23,1025-65534)                    TPORT   := 23        ? 
+TELNET CONNECT BANNER (254 characters)
+TCBAN   := TERMINAL SERVER
+? 
+TELNET TIME-OUT (1-30 min)                     TIDLE   := 15        ? 
+FAST OP MESSAGES (Y, N)                        FASTOP  := N         ? 
+
+FTP Configuration
+
+ENABLE FTP (Y, N)                              EFTPSERV:= Y         ? 
+FTP MAXIMUM ACCESS LEVEL (1,2, C)              FTPACC  := 2         ? 
+FTP USER NAME (20 characters)
+FTPUSER := FTPUSER
+? 
+FTP CONNECT BANNER (254 characters)
+FTPCBAN := FTP SERVER
+? 
+FTP IDLE TIME-OUT (5-255 min)                  FTPIDLE := 5         ? 
+
+IEC 61850 Configuration
+
+ENABLE IEC 61850 PROTOCOL (Y, N)               E61850  := N         ? 
+
+Modbus Protocol Configuration
+
+ENABLE MODBUS SESSIONS (0-2)                   EMOD    := 0         ? 
+
+HTTP Server Configuration
+
+Enable HTTP Server (Y, N)                      EHTTP   := Y         ? 
+HTTP Maximum Accesss Level (1,2)               HTTPACC := 2         ? 
+HTTP Server TCP/IP Port Number (1-65534)       HTTPPORT:= 80        ? 
+HTTP Connect Banner (254 characters)
+HTTPBAN := THIS SYSTEM IS FOR THE USE OF AUTHORIZED PERSONNEL ONLY.
+? 
+HTTP Web Server Timeout (1-60 min)             HTTPIDLE:= 10        ? 
+
+Fixed GOOSE Publication Configuration
+
+ENA FIXGOOSE PUB (0-1)                         EFGTX   := 0         ? 
+
+Fixed GOOSE Subscription Configuration
+
+ENA FIXGOOSE SUB (0-4)                         EFGRX   := 0         ? 
+
+SNTP Client Protocol Configuration
+
+ENABLE SNTP CLIENT (OFF, UNICAST, MANYCAST, BROADCAST)
+                                               ESNTP   := OFF       ? 
+
+PTP Configuration
+
+ENABLE PTP (Y, N)                              EPTP    := N         ? 
+
+Port 1
+
+Port Enable
+EPORT    := Y
+
+Firmware Upgrade Configuration
+EETHFWU  := N
+
+Ethernet Port Settings
+IPADDR   := 192.168.1.3
+SUBNETM  := 255.255.255.0
+DEFRTR   := 192.168.1.1
+ETCPKA   := Y             KAIDLE   := 10            KAINTV   := 1
+KACNT    := 6             NETMODE  := FAILOVER      FTIME    := 1.00
+NETPORT  := A
+
+Telnet Configuration
+ETELNET  := Y             MAXACC   := C             LANG     := ENGLISH
+TPORT    := 23
+TCBAN    := TERMINAL SERVER
+TIDLE    := 15            FASTOP   := N
+
+FTP Configuration
+EFTPSERV := Y             FTPACC   := 2
+FTPUSER  := FTPUSER
+FTPCBAN  := FTP SERVER
+FTPIDLE  := 5
+
+IEC 61850 Configuration
+E61850   := N
+
+Modbus Protocol Configuration
+EMOD     := 0
+
+HTTP Server Configuration
+EHTTP    := Y             HTTPACC  := 2             HTTPPORT := 80
+HTTPBAN  := THIS SYSTEM IS FOR THE USE OF AUTHORIZED PERSONNEL ONLY.
+HTTPIDLE := 10
+
+Fixed GOOSE Publication Configuration
+EFGTX    := 0
+
+Fixed GOOSE Subscription Configuration
+EFGRX    := 0
+
+SNTP Client Protocol Configuration
+ESNTP    := OFF
+
+PTP Configuration
+EPTP     := N
+
+Save changes (Y,N)? y
+Settings Saved
+
+=>>

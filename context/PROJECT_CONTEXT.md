@@ -62,9 +62,10 @@
   1. CLI args
   2. `desiredstate.csv` lookup by Serial
   3. Interactive prompt
-- Re-IP primary interface selector:
-  - Canonical CLI selector is `-PrimaryInterface` with values `1A` or `1B`.
-  - Relay config selector is mapped to/from `NETPORT` values `A` or `B`.
+- Re-IP scope:
+  - single-device address change only
+  - active write set is `IPADDR`, `SUBNETM`, `DEFRTR`
+  - `NETPORT` / interface switching is out of scope for the current re-IP path
 - Inventory persistence:
   - Append structured event to `data/devices/<serial>.json`
   - Maintain top-level device metadata in JSON: `name`, `description`
@@ -95,11 +96,21 @@
 
 ## Re-IP behavior decisions
 - `ID` runs first.
-- Escalation probe order when `SET P 1` is denied: `ACC` -> `2AC` -> `C`.
-- If still denied, abort and instruct front-panel remediation.
+- Re-IP access path is `ACC` -> `2AC`.
+- If access escalation fails, abort and instruct remediation.
 - If serial mismatch is detected after reconnect, warn and continue.
-- `reip` is not considered field-ready until at least one real `SET P 1` transcript is captured and reviewed.
-- The current risk is the interactive dialog tail: exact save/apply confirmation text, full prompt ordering, and disconnect wording still need grounding in a real relay transcript.
+- `reip` is bench-usable and transcript-grounded, but should still be treated as test-equipment workflow rather than field automation.
+- The current risk is the interactive dialog tail: a transcript now confirms `Save changes (Y,N)?` and `Settings Saved`, but PuTTY may still log trailing prompt text even though the usable live session has already ended.
+- Current observed behavior suggests IP change is a near-instant session/network cutover, not a relay reboot; reconnect logic should start almost immediately after save.
+- Re-IP identity uses `STA` and `ETH`; inventory uses `SER` and `ETH`.
+- Re-IP always collects identity needed for confirmation and verification, even when inventory update is skipped.
+- In the interactive menu, re-IP prompts for:
+  - `Host IP`
+  - `Target IP`
+  - `Target subnet mask`
+  - `Target gateway`
+  - `Update inventory? [N]`
+- Re-IP prints its run report immediately after completion in the menu flow.
 
 ## Logging policy
 - One run log file per run: `logs/run-YYYYMMDD-HHMMSS.log`
@@ -114,16 +125,21 @@
 
 ## Definition of done (v0.1)
 - `seltools.ps1 inventory` captures ID/ACC/SER/ETH and persists JSON plus observed CSV state.
-- `seltools.ps1 reip` applies IP/mask/gateway via `SET P 1`, reconnects, and verifies identity behavior.
+- `seltools.ps1 reip` applies IP/mask/gateway via `SET P 1`, reconnects, and verifies identity behavior using `STA` plus `ETH`.
 - `seltools.ps1 fwupgrade` exists as a stub with explicit `NotImplemented` output.
 - Commands support interactive prompts and no-arg menu operation.
 - Pester tests cover parser behavior, argument/input precedence, and CLI helper dispatch/prompt defaults.
 
-## Implementation status (2026-03-23)
+## Implementation status (2026-03-28)
 - Implemented:
   - Profile-based defaults selection (`-Profile`, default `factory`)
   - Plink transport for Telnet session handling (`tools/plink.exe` with `SELTOOLS_PLINK_PATH` override)
   - Live inventory Telnet flow (`ID`, `ACC`, `SER`, `ETH`)
+  - Live re-IP identity flow (`ID`, `ACC`, `2AC`, `STA`, `ETH`)
+  - Live re-IP address change flow (`SET P 1`) for `IPADDR`, `SUBNETM`, `DEFRTR`
+  - Transcript-backed save handling (`Save changes (Y,N)?`, `Settings Saved`)
+  - Immediate reconnect after save with serial verification
+  - Always-on run logging with `logs/run-YYYYMMDD-HHMMSS.log`
   - Parsing of ID/STA/ETH fields and persistence to:
     - `data/devices/<serial>.json`
     - observed columns in `data/desiredstate.csv`
@@ -132,11 +148,14 @@
     - compatibility aliases retained during transition (`primaryPort`/`activePort`)
   - SER event stream persistence to `data/events/<serial>/ser.jsonl` with raw archives in `data/events/<serial>/`
   - Menu-driven no-arg CLI (`inventory|reip|fwupgrade|help|exit`) with guided prompts and value prefills
+  - Re-IP menu simplified to host-IP-driven prompts without serial/profile entry
+  - Re-IP menu prompt `Update inventory? [N]` with remembered in-session default
   - Inventory sub-menu (`Single IP scan`, `IP Range scan` placeholder, `Inventory Browser` launcher)
-  - End-of-run report with:
+  - Run report with:
     - new devices discovered
     - existing devices with detected changes
-    - explicit `No changes detected.` line when none are found
+    - explicit re-IP action summaries showing old IP -> new IP and status
+    - immediate re-IP report emission in menu flow plus exit summary
   - Name/Description metadata support in desired state and per-device JSON
   - Metadata sync on inventory so Name/Description are carried in both desiredstate and per-device JSON
   - Static browser app (`web/`) with:
@@ -145,13 +164,7 @@
     - desiredstate editing + device metadata editing
     - read-only inventory browser view
     - SER event stream browser for `data/events/<serial>/ser.jsonl`
-  - Re-IP scaffold behavior:
-    - command/menu dispatch is wired to `Invoke-SelReIp`
-    - target resolution precedence is implemented: CLI > desiredstate by serial > interactive prompt
-    - reip events are persisted to per-device JSON with resolved target values and source metadata
-    - `-PassThru` returns structured run-report data for menu summary integration
 - Current next target:
-  - Complete live `reip` over `SET P 1` interactive prompts with reconnect and serial verification.
-  - Add access escalation flow for denied `SET P 1` (`ACC` -> `2AC` -> `C`) and fail-safe handling.
-  - Add reconnect identity checks and serial mismatch warning/report behavior for reip runs.
-  - Capture and retain at least one real `SET P 1` transcript before declaring `reip` ready for field use.
+  - Keep tightening documentation and transcript coverage around live re-IP behavior.
+  - Decide whether generated runtime artifacts (`logs/`, local device snapshots) should remain local-only or become tracked deliverables.
+  - Implement real firmware workflow behind `fwupgrade`.

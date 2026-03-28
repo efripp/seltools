@@ -199,13 +199,21 @@ $clean = $text -replace "[\x00-\x1F]", ""
 
 # Connection Drop Handling
 
-After saving a new IP address via `SET P 1`, the relay will terminate the Telnet connection.
+Observed transcript detail:
 
-This is expected behavior.
+- The save prompt is `Save changes (Y,N)?`
+- The relay reports `Settings Saved`
+- PuTTY logs may still show trailing prompt text after save
+
+Operational interpretation:
+
+- After saving a new IP address via `SET P 1`, treat the live Telnet session as effectively terminated immediately, even if PuTTY logs captured trailing text or an apparent returned prompt.
+- `Settings Saved` plus a logged prompt is not reliable evidence that the session remained usable.
+- The relay does not appear to reboot when the IP is changed; behavior is consistent with a near-instant network/session cutover to the new IP.
 
 Tool logic:
 
-1. Detect connection drop.
-2. Wait briefly.
-3. Reconnect to the new IP.
+1. Treat save as the end of the usable session.
+2. Begin reconnect attempts to the new IP almost immediately.
+3. Keep a short settle window / retry loop only as a safety margin, not as a reboot wait.
 4. Verify device identity using Serial.
