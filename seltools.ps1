@@ -18,7 +18,6 @@ param(
 
 $modulePath = Join-Path $PSScriptRoot "src\SelTools\SelTools.psm1"
 Import-Module $modulePath -Force -WarningAction SilentlyContinue
-$script:SelToolsVersion = "v0.1.0"
 $script:SelToolsArt = @'
       ::::::::  :::::::::: :::       ::::::::::: ::::::::   ::::::::  :::        :::::::: 
     :+:    :+: :+:        :+:           :+:    :+:    :+: :+:    :+: :+:       :+:    :+: 
@@ -32,6 +31,42 @@ $script:SelToolsArt = @'
 if ($ConsoleOutput) {
     Set-SelConsoleOutputPreference -Enabled:($ConsoleOutput -eq "enabled")
 }
+
+function Get-SelDisplayVersion {
+    param(
+        [string]$RootPath = $PSScriptRoot
+    )
+
+    $baseVersion = "v0.1.0"
+    $versionPath = Join-Path $RootPath "VERSION"
+    if (Test-Path -Path $versionPath -PathType Leaf) {
+        try {
+            $rawVersion = (Get-Content -Path $versionPath -Raw -ErrorAction Stop).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($rawVersion)) {
+                $baseVersion = $rawVersion
+            }
+        }
+        catch {}
+    }
+
+    $gitDir = Join-Path $RootPath ".git"
+    if (-not (Test-Path -Path $gitDir)) {
+        return $baseVersion
+    }
+
+    try {
+        $shortHash = (& git rev-parse --short HEAD 2>$null | Select-Object -First 1).Trim()
+        if ([string]::IsNullOrWhiteSpace($shortHash)) {
+            return $baseVersion
+        }
+        return ("{0}+{1}" -f $baseVersion, $shortHash)
+    }
+    catch {
+        return $baseVersion
+    }
+}
+
+$script:SelToolsVersion = Get-SelDisplayVersion
 
 function Get-SelPromptValue {
     param(

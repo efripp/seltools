@@ -599,6 +599,51 @@ Describe "ReIP persistence control" {
     }
 }
 
+Describe "Inventory progress" {
+    It "emits progress messages during single inventory" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = "192.168.1.2"
+                ACCPassword = "OTTER"
+            }
+        }
+        Mock Resolve-SelInventoryHostIp -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Source = "cli" } }
+        Mock Invoke-SelPlinkInventoryCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                ID = "id"
+                SER = "sta"
+                ETH = "eth"
+                AccOk = $true
+            }
+        }
+        Mock ConvertFrom-SelIdOutput -ModuleName SelTools { [pscustomobject]@{ FID = "FID"; CID = "CID" } }
+        Mock ConvertFrom-SelStaOutput -ModuleName SelTools { [pscustomobject]@{ Serial = "3250985195"; FID = "FID"; CID = "CID" } }
+        Mock ConvertFrom-SelEthOutput -ModuleName SelTools { [pscustomobject]@{ IP = "192.168.1.2"; MAC = "00-30-A7-42-2F-B2" } }
+        Mock Get-SelEthernetModelFromEthParsed -ModuleName SelTools { [pscustomobject]@{ primaryInterface = "1A"; activeInterface = "1A"; netMode = "FAILOVER" } }
+        Mock Get-SelDesiredStateMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Get-SelDeviceMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Resolve-SelMetadata -ModuleName SelTools { [pscustomobject]@{ Name = ""; Description = "" } }
+        Mock Get-SelLatestInventorySnapshot -ModuleName SelTools { $null }
+        Mock Write-SelSerEventStore -ModuleName SelTools {
+            [pscustomobject]@{
+                Result = "success"
+                ParsedCount = 1
+                EntriesAdded = 1
+                EventStorePath = "data/events/3250985195/ser.jsonl"
+                RawArchivePath = "data/events/3250985195/raw-ser.txt"
+            }
+        }
+        Mock Add-SelDeviceEvent -ModuleName SelTools { }
+        Mock Update-SelDesiredStateObserved -ModuleName SelTools { }
+        Mock Get-SelInventoryChangeSummary -ModuleName SelTools { @() }
+        Mock Write-SelProgress -ModuleName SelTools { }
+
+        $null = Invoke-SelInventory -HostIp "192.168.1.2" -PassThru
+
+        Assert-MockCalled Write-SelProgress -ModuleName SelTools -Times 5
+    }
+}
+
 Describe "ReIP capture command selection" {
     It "uses STA and not SER when IncludeSer is set for reip capture" {
         $global:sentLines = @()

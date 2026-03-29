@@ -33,6 +33,16 @@ Describe "CLI helper behavior" {
         (($output | ForEach-Object { $_.ToString() }) -join "`n") | Should Match "::::::::"
     }
 
+    It "Get-SelDisplayVersion uses VERSION file when git metadata is unavailable" {
+        $root = Join-Path $TestDrive "repo"
+        New-Item -ItemType Directory -Path $root | Out-Null
+        Set-Content -Path (Join-Path $root "VERSION") -Value "v9.9.9"
+
+        $version = Get-SelDisplayVersion -RootPath $root
+
+        $version | Should Be "v9.9.9"
+    }
+
     It "Invoke-SelDispatch routes inventory with expected arguments" {
         $script:calledInventory = $null
         function Invoke-SelInventory {

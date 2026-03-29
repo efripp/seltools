@@ -2748,11 +2748,14 @@ function Invoke-SelInventory {
         Write-SelTrace -TraceContext $trace -Message ("inventory hostIp resolved from profile default: {0}" -f $HostIp)
     }
 
+    Write-SelProgress -Message "Resolving inventory target." -TraceContext $trace
     $resolvedHost = Resolve-SelInventoryHostIp -Serial $Serial -HostIp $HostIp
     $HostIp = [string]$resolvedHost.HostIp
     Write-SelTrace -TraceContext $trace -Message ("inventory hostIp final={0} source={1}" -f $HostIp, $resolvedHost.Source)
 
+    Write-SelProgress -Message ("Opening Telnet session to {0} for inventory." -f $HostIp) -TraceContext $trace
     $capture = Invoke-SelPlinkInventoryCapture -HostIp $HostIp -AccPassword ([string]$defaults.ACCPassword) -TraceContext $trace
+    Write-SelProgress -Message ("Parsing inventory output from {0}." -f $HostIp) -TraceContext $trace
     $idParsed = ConvertFrom-SelIdOutput -Text $capture.ID
     $serSummaryParsed = ConvertFrom-SelStaOutput -Text $capture.SER
     $ethParsed = ConvertFrom-SelEthOutput -Text $capture.ETH
@@ -2837,10 +2840,12 @@ function Invoke-SelInventory {
         Note = "ACC escalation did not reach Level 1."
     }
     if ($capture.AccOk) {
+        Write-SelProgress -Message ("Storing SER event stream for serial {0}." -f $observedSerial) -TraceContext $trace
         $serPullResult = Write-SelSerEventStore -Serial $observedSerial -RawSerText $capture.SER -RunId ([string]$trace.RunId) -TraceContext $trace
         $serPullResult | Add-Member -MemberType NoteProperty -Name Note -Value "" -Force
     }
 
+    Write-SelProgress -Message ("Persisting inventory results for serial {0}." -f $observedSerial) -TraceContext $trace
     Add-SelDeviceEvent -Serial $observedSerial -Event $event
     $serPullEvent = [pscustomobject]@{
         timestamp = (Get-Date).ToString("s")
