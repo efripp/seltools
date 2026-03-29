@@ -11,10 +11,9 @@
 ## v0.1 scope
 - Implement: `inventory`, `reip`
 - Expose: `fwupgrade` command as a clear stub (`NotImplemented`)
-- Defer: `blupgrade`, `fwdowngrade`, and bulk orchestration
+- Defer: `blupgrade`, `fwdowngrade`, and non-interactive fleet orchestration
 
 ## Non-goals (for now)
-- Bulk re-IP from `desiredstate.csv`
 - Bulk firmware actions from `desiredstate.csv`
 - GUI
 - External dependencies / third-party modules
@@ -66,6 +65,15 @@
   - single-device address change only
   - active write set is `IPADDR`, `SUBNETM`, `DEFRTR`
   - `NETPORT` / interface switching is out of scope for the current re-IP path
+- Mass-provisioning scope:
+  - menu-driven `1X1 Mass Provisioning` for bench use
+  - one SEL at the time should be added to the network in this mode
+  - modes:
+    - assign IP range one by one
+    - assign IP interactively one by one
+    - assign IP from `desiredstate.csv` one by one
+  - desired-state matching is Serial first, MAC fallback
+  - pre-identification failures are recorded as session-level failures, not fake per-device rows
 - Inventory persistence:
   - Append structured event to `data/devices/<serial>.json`
   - Maintain top-level device metadata in JSON: `name`, `description`
@@ -111,11 +119,15 @@
   - `Target gateway`
   - `Update inventory? [N]`
 - Re-IP prints its run report immediately after completion in the menu flow.
+- Mass provisioning prints its run report immediately after completion in the menu flow and then prompts for optional CSV export to `data/mass-provisioning-*.csv`.
 
 ## Logging policy
 - One run log file per run: `logs/run-YYYYMMDD-HHMMSS.log`
-- Default verbosity: `Compact` (optional `Full`)
-- `seltools.ps1` supports `-DebugTransport` for live console+file transport tracing.
+- Log creation is always on.
+- `seltools.ps1` supports `-DebugTransport` for richer live transport tracing; it does not control whether a log file exists.
+- `ConsoleOutput` is a persistent UI preference stored in `data/settings.json` with values `enabled` or `suppressed`.
+- Startup banner always prints.
+- Progress indicator is console-only, ASCII-safe, and remains visible even when console chatter is suppressed.
 - Redact sensitive values in logs during transmission.
 - Per-device JSON stores structured facts only and references run log location.
 
@@ -140,6 +152,9 @@
   - Transcript-backed save handling (`Save changes (Y,N)?`, `Settings Saved`)
   - Immediate reconnect after save with serial verification
   - Always-on run logging with `logs/run-YYYYMMDD-HHMMSS.log`
+  - Persistent `ConsoleOutput` preference in `data/settings.json`
+  - Startup banner retained even when console chatter is suppressed
+  - Console progress indicator for active operations
   - Parsing of ID/STA/ETH fields and persistence to:
     - `data/devices/<serial>.json`
     - observed columns in `data/desiredstate.csv`
@@ -150,11 +165,18 @@
   - Menu-driven no-arg CLI (`inventory|reip|fwupgrade|help|exit`) with guided prompts and value prefills
   - Re-IP menu simplified to host-IP-driven prompts without serial/profile entry
   - Re-IP menu prompt `Update inventory? [N]` with remembered in-session default
+  - `1X1 Mass Provisioning` under re-IP with range, interactive, and desiredstate modes
+  - Desired-state duplicate/conflict checks before desiredstate mass provisioning starts
+  - Local-host subnet validation in 1X1 mass provisioning
+  - Session-level failure reporting for pre-identification mass-provisioning failures
+  - Optional CSV export of mass-provisioning mappings to `data/`
   - Inventory sub-menu (`Single IP scan`, `IP Range scan` placeholder, `Inventory Browser` launcher)
   - Run report with:
     - new devices discovered
     - existing devices with detected changes
     - explicit re-IP action summaries showing old IP -> new IP and status
+    - 1X1 mass-provisioning session summaries and mapping rows
+    - session-level failure notes when no relay identity was captured
     - immediate re-IP report emission in menu flow plus exit summary
   - Name/Description metadata support in desired state and per-device JSON
   - Metadata sync on inventory so Name/Description are carried in both desiredstate and per-device JSON
@@ -167,4 +189,5 @@
 - Current next target:
   - Keep tightening documentation and transcript coverage around live re-IP behavior.
   - Decide whether generated runtime artifacts (`logs/`, local device snapshots) should remain local-only or become tracked deliverables.
+  - Decide whether the current progress indicator stays as-is or should be simplified.
   - Implement real firmware workflow behind `fwupgrade`.

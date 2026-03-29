@@ -131,3 +131,27 @@
 **Alternatives:** Keep only raw `A/B` naming in all layers, or migrate immediately without alias compatibility.
 **Reason:** `SET P 1` config scope and `ETH` runtime/status output use different tokens (`A/B` vs `1A/1B`); normalization avoids ambiguity in desired-state comparisons and future re-ip logic.
 **Consequence:** Inventory parsing now captures `NETMODE`, `PRIMARY PORT`, `ACTIVE PORT`, and per-interface rows; JSON writes normalized `inventory.Ethernet.*` with transitional aliases (`primaryPort`/`activePort`), and desired-state includes `DesiredPrimaryInterface`, `ObservedPrimaryInterface`, `ObservedActiveInterface`, `ObservedNetMode`.
+
+## ADR-0023: Console-output preference is persistent and separate from logging
+**Decision:** Persist console chatter preference as `enabled` or `suppressed` in `data/settings.json`.
+**Alternatives:** Per-run only flag, or tie console chatter directly to logging/tracing.
+**Reason:** Operators want stable console behavior across sessions without losing run logs.
+**Consequence:** Run logs are always written; console chatter can be reduced independently.
+
+## ADR-0024: 1X1 Mass Provisioning is the accepted bench bulk re-IP workflow
+**Decision:** Implement `1X1 Mass Provisioning` under `reip` with range, interactive, and desiredstate modes, assuming one relay is added to the network at a time.
+**Alternatives:** Keep bulk work deferred, or add full non-interactive batch provisioning first.
+**Reason:** Bench provisioning is needed now, but shared-default-IP relays require one-at-a-time handling.
+**Consequence:** Re-IP menu includes a provisioning sub-menu, final mapping report, and optional CSV export.
+
+## ADR-0025: Pre-identification provisioning failures are session-level only
+**Decision:** If mass provisioning fails before a relay is identified, record the failure as a session-level note rather than a fake device row.
+**Alternatives:** Emit `(unknown)` rows or drop the failure entirely.
+**Reason:** A mapping row should represent a specific relay and should not exist without a real identity key.
+**Consequence:** Session totals still count failures, but detailed rows and CSV exports contain only real relay mappings.
+
+## ADR-0026: Progress indicator is ASCII-safe and remains visible in suppressed mode
+**Decision:** Use a lightweight ASCII progress indicator for active operations, and keep it visible even when console chatter is suppressed.
+**Alternatives:** No progress indicator, Unicode/ANSI-heavy styling, or tie it to `ConsoleOutput`.
+**Reason:** Operators need an obvious sign of activity without introducing fragile terminal dependencies.
+**Consequence:** Progress is console-only, logs remain clean, and prompts/reports must clear the indicator before printing.

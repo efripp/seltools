@@ -25,6 +25,13 @@
 - Verify identity by Serial before and after re-IP and upgrades.
 - Do not treat `reip` as field-ready without at least one real `SET P 1` transcript covering the final save/apply prompt and disconnect behavior.
 
+## Context hygiene
+- Keep docs aligned with current menu/UX behavior when changing `reip`, `1X1 Mass Provisioning`, logging, or console-output behavior.
+- If mass-provisioning reporting changes, keep `PROJECT_CONTEXT.md`, `BACKLOG.md`, and `DECISIONS.md` consistent about:
+  - per-device mapping rows
+  - session-level failures
+  - CSV export behavior
+
 ## Tests
 - Add/update Pester tests for parser behavior, argument/input precedence, and CLI helper/dispatch behavior.
 

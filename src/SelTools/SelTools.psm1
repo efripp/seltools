@@ -44,6 +44,93 @@ function Get-SelDataPath {
     return (Join-Path (Get-SelRepoRoot) ("data\" + $ChildPath))
 }
 
+function Get-SelSettingsPath {
+    return (Get-SelDataPath -ChildPath "settings.json")
+}
+
+function Get-SelUiSettings {
+    param(
+        [string]$Path = (Get-SelSettingsPath)
+    )
+
+    $defaults = [pscustomobject]@{
+        ConsoleOutputEnabled = $true
+    }
+
+    if (-not (Test-Path $Path)) {
+        return $defaults
+    }
+
+    try {
+        $raw = Get-Content -Path $Path -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $defaults
+        }
+
+        $parsed = $raw | ConvertFrom-Json -ErrorAction Stop
+        $enabled = $true
+        if ($parsed.PSObject.Properties.Name -contains "ConsoleOutputEnabled") {
+            $enabled = [bool]$parsed.ConsoleOutputEnabled
+        }
+
+        return [pscustomobject]@{
+            ConsoleOutputEnabled = $enabled
+        }
+    }
+    catch {
+        return $defaults
+    }
+}
+
+function Set-SelConsoleOutputPreference {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Enabled,
+        [string]$Path = (Get-SelSettingsPath)
+    )
+
+    $dir = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($dir) -and -not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    [pscustomobject]@{
+        ConsoleOutputEnabled = [bool]$Enabled
+    } | ConvertTo-Json | Set-Content -Path $Path
+}
+
+function Test-SelConsoleOutputEnabled {
+    param(
+        [string]$Path = (Get-SelSettingsPath)
+    )
+
+    return [bool](Get-SelUiSettings -Path $Path).ConsoleOutputEnabled
+}
+
+$script:SelProgressSequence = 0
+
+function Get-SelProgressFrame {
+    $frames = @(">  ", ">> ", ">>>", " >>", "  >")
+    $frame = $frames[$script:SelProgressSequence % $frames.Count]
+    $script:SelProgressSequence++
+    return $frame
+}
+
+function Show-SelProgressIndicator {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $frame = Get-SelProgressFrame
+    Write-Progress -Id 1 -Activity "SELTools In Progress" -Status $Message -CurrentOperation ("{0} working" -f $frame)
+    return $frame
+}
+
+function Clear-SelProgressIndicator {
+    Write-Progress -Id 1 -Activity "SELTools In Progress" -Completed
+}
+
 function Get-SelDefaultsRows {
     param(
         [Parameter(Mandatory = $false)]
@@ -165,7 +252,7 @@ function Write-SelTrace {
     $ts = (Get-Date).ToString("s")
     $line = "{0} [TRACE] {1}" -f $ts, $Message
     Add-Content -Path $TraceContext.LogPath -Value $line
-    if ($TraceContext.Enabled) {
+    if ($TraceContext.Enabled -and (Test-SelConsoleOutputEnabled)) {
         Write-Host $line
     }
 }
@@ -459,7 +546,10 @@ function Write-SelProgress {
         [pscustomobject]$TraceContext
     )
 
-    Write-Host $Message
+    $frame = Show-SelProgressIndicator -Message $Message
+    if (Test-SelConsoleOutputEnabled) {
+        Write-Host ("{0} {1}" -f $frame, $Message)
+    }
     Write-SelTrace -TraceContext $TraceContext -Message $Message
 }
 
@@ -470,6 +560,8 @@ function Read-SelPromptWithDefault {
         [AllowNull()]
         [string]$DefaultValue
     )
+
+    Clear-SelProgressIndicator
 
     if ([string]::IsNullOrWhiteSpace($DefaultValue)) {
         return (Read-Host $Prompt)
@@ -884,12 +976,14 @@ function Invoke-SelPingCheck {
 
     Write-SelTrace -TraceContext $TraceContext -Message ("PING preflight host={0}" -f $HostIp)
     $output = (& ping.exe -n 1 $HostIp 2>&1 | Out-String)
-    $success = ($output -match "(?im)TTL=" -or $output -match "(?im)^Reply from ")
-    Write-SelTrace -TraceContext $TraceContext -Message ("PING preflight success={0}" -f $success)
+    $analysis = Analyze-SelPingOutput -Output $output
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING preflight success={0} reason={1}" -f $analysis.Success, $analysis.FailureReason)
     return [pscustomobject]@{
         HostIp = $HostIp
-        Success = $success
-        Output = $output.Trim()
+        Success = $analysis.Success
+        FailureReason = $analysis.FailureReason
+        ReplyCount = $analysis.ReplyCount
+        Output = $analysis.Output
     }
 }
 
@@ -905,19 +999,445 @@ function Wait-SelPingRecovery {
 
     Write-SelTrace -TraceContext $TraceContext -Message ("PING recovery host={0} count={1}" -f $HostIp, $Count)
     $output = (& ping.exe -n $Count $HostIp 2>&1 | Out-String)
-    $replyMatches = [regex]::Matches($output, "(?im)^Reply from ")
-    $success = ($replyMatches.Count -gt 0 -or $output -match "(?im)TTL=")
+    $analysis = Analyze-SelPingOutput -Output $output
+    $success = $analysis.Success
     if ($success -and $SettleSeconds -gt 0) {
         Start-Sleep -Seconds $SettleSeconds
     }
 
-    Write-SelTrace -TraceContext $TraceContext -Message ("PING recovery success={0} replies={1}" -f $success, $replyMatches.Count)
+    Write-SelTrace -TraceContext $TraceContext -Message ("PING recovery success={0} replies={1} reason={2}" -f $success, $analysis.ReplyCount, $analysis.FailureReason)
     return [pscustomobject]@{
         HostIp = $HostIp
         Success = $success
-        ReplyCount = $replyMatches.Count
+        FailureReason = $analysis.FailureReason
+        ReplyCount = $analysis.ReplyCount
         SettleSeconds = $SettleSeconds
-        Output = $output.Trim()
+        Output = $analysis.Output
+    }
+}
+
+function Analyze-SelPingOutput {
+    param(
+        [AllowNull()]
+        [string]$Output
+    )
+
+    $trimmed = if ($null -eq $Output) { "" } else { $Output.Trim() }
+    $replyCount = [regex]::Matches($trimmed, "(?im)^Reply from ").Count
+
+    if ($trimmed -match "(?im)\bDestination host unreachable\b") {
+        return [pscustomobject]@{
+            Success = $false
+            FailureReason = "DestinationHostUnreachable"
+            ReplyCount = $replyCount
+            Output = $trimmed
+        }
+    }
+    if ($trimmed -match "(?im)\bRequest timed out\b") {
+        return [pscustomobject]@{
+            Success = $false
+            FailureReason = "RequestTimedOut"
+            ReplyCount = $replyCount
+            Output = $trimmed
+        }
+    }
+    if ($trimmed -match "(?im)\bGeneral failure\b") {
+        return [pscustomobject]@{
+            Success = $false
+            FailureReason = "GeneralFailure"
+            ReplyCount = $replyCount
+            Output = $trimmed
+        }
+    }
+    if ($trimmed -match "(?im)\bcould not find host\b") {
+        return [pscustomobject]@{
+            Success = $false
+            FailureReason = "HostNotFound"
+            ReplyCount = $replyCount
+            Output = $trimmed
+        }
+    }
+    if ($trimmed -match "(?im)\bTTL=") {
+        return [pscustomobject]@{
+            Success = $true
+            FailureReason = ""
+            ReplyCount = $replyCount
+            Output = $trimmed
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = $false
+        FailureReason = "NoSuccessfulReply"
+        ReplyCount = $replyCount
+        Output = $trimmed
+    }
+}
+
+function ConvertTo-SelIpv4UInt32 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Ip
+    )
+
+    $address = [System.Net.IPAddress]::Parse($Ip)
+    if ($address.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw ("IP address '{0}' is not IPv4." -f $Ip)
+    }
+
+    $bytes = $address.GetAddressBytes()
+    [Array]::Reverse($bytes)
+    return [System.BitConverter]::ToUInt32($bytes, 0)
+}
+
+function Get-SelIpv4Range {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$StartIp,
+        [Parameter(Mandatory = $true)]
+        [string]$EndIp
+    )
+
+    $startValue = ConvertTo-SelIpv4UInt32 -Ip $StartIp
+    $endValue = ConvertTo-SelIpv4UInt32 -Ip $EndIp
+    if ($endValue -lt $startValue) {
+        throw ("IP range end {0} is before start {1}." -f $EndIp, $StartIp)
+    }
+
+    $ips = New-Object 'System.Collections.Generic.List[string]'
+    for ($value = $startValue; $value -le $endValue; $value++) {
+        $bytes = [System.BitConverter]::GetBytes([uint32]$value)
+        [Array]::Reverse($bytes)
+        $ips.Add(([System.Net.IPAddress]::new($bytes)).ToString())
+    }
+
+    return @($ips)
+}
+
+function Get-SelLocalIpv4Addresses {
+    try {
+        return @(
+            Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace([string]$_.IPAddress) -and
+                    [string]$_.IPAddress -notmatch '^169\.254\.' -and
+                    [string]$_.IPAddress -ne '127.0.0.1'
+                } |
+                Select-Object -ExpandProperty IPAddress
+        )
+    }
+    catch {
+        return @()
+    }
+}
+
+function Test-SelLocalIpv4OnTargetNetwork {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetIp,
+        [string]$Mask,
+        [string[]]$LocalAddresses = (Get-SelLocalIpv4Addresses)
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Mask)) {
+        return [pscustomobject]@{
+            Success = $true
+            Checked = $false
+            Reason = "mask-missing"
+            MatchingLocalIPs = @()
+            LocalIPs = @($LocalAddresses)
+            TargetIp = $TargetIp
+            Mask = $Mask
+        }
+    }
+
+    $targetValue = ConvertTo-SelIpv4UInt32 -Ip $TargetIp
+    $maskValue = ConvertTo-SelIpv4UInt32 -Ip $Mask
+    $targetNetwork = $targetValue -band $maskValue
+    $matching = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($localIp in @($LocalAddresses)) {
+        if ([string]::IsNullOrWhiteSpace([string]$localIp)) {
+            continue
+        }
+
+        $localNetwork = (ConvertTo-SelIpv4UInt32 -Ip $localIp) -band $maskValue
+        if ($localNetwork -eq $targetNetwork) {
+            $matching.Add([string]$localIp)
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = ($matching.Count -gt 0)
+        Checked = $true
+        Reason = $(if ($matching.Count -gt 0) { "match" } else { "no-local-address-on-target-network" })
+        MatchingLocalIPs = @($matching)
+        LocalIPs = @($LocalAddresses)
+        TargetIp = $TargetIp
+        Mask = $Mask
+    }
+}
+
+function Normalize-SelMacAddress {
+    param(
+        [AllowNull()]
+        [string]$Mac
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Mac)) {
+        return ""
+    }
+
+    return (($Mac -replace '[^0-9A-Fa-f]', '').ToUpperInvariant())
+}
+
+function Test-SelDesiredStateConflicts {
+    param(
+        [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv")
+    )
+
+    $rows = @(Get-SelDesiredStateActiveRows -Path $DesiredStatePath)
+    $conflicts = New-Object System.Collections.ArrayList
+
+    foreach ($group in @($rows | Group-Object Serial | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Name) -and $_.Count -gt 1 })) {
+        [void]$conflicts.Add([pscustomobject]@{
+            Type = "duplicate-serial"
+            Key = [string]$group.Name
+            Count = [int]$group.Count
+            DesiredIPs = (@($group.Group | ForEach-Object { [string]$_.DesiredIP } | Where-Object { $_ }) -join ", ")
+            Message = ("Serial {0} appears {1} times in desiredstate.csv." -f [string]$group.Name, [int]$group.Count)
+        })
+    }
+
+    foreach ($group in @($rows | Group-Object { Normalize-SelMacAddress -Mac ([string]$_.Mac) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Name) -and $_.Count -gt 1 })) {
+        [void]$conflicts.Add([pscustomobject]@{
+            Type = "duplicate-mac"
+            Key = [string]$group.Name
+            Count = [int]$group.Count
+            DesiredIPs = (@($group.Group | ForEach-Object { [string]$_.DesiredIP } | Where-Object { $_ }) -join ", ")
+            Message = ("MAC {0} appears {1} times in desiredstate.csv." -f [string]$group.Name, [int]$group.Count)
+        })
+    }
+
+    foreach ($group in @($rows | Group-Object DesiredIP | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Name) -and $_.Count -gt 1 })) {
+        [void]$conflicts.Add([pscustomobject]@{
+            Type = "duplicate-desiredip"
+            Key = [string]$group.Name
+            Count = [int]$group.Count
+            Serials = (@($group.Group | ForEach-Object { [string]$_.Serial } | Where-Object { $_ }) -join ", ")
+            Message = ("Desired IP {0} is assigned to {1} rows in desiredstate.csv." -f [string]$group.Name, [int]$group.Count)
+        })
+    }
+
+    return [pscustomobject]@{
+        IsValid = ($conflicts.Count -eq 0)
+        Conflicts = @($conflicts)
+        Rows = $rows
+    }
+}
+
+function Resolve-SelDesiredStateProvisionTarget {
+    param(
+        [string]$Serial,
+        [string]$Mac,
+        [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv")
+    )
+
+    $rows = @(Get-SelDesiredStateActiveRows -Path $DesiredStatePath)
+    $serialMatches = @()
+    if (-not [string]::IsNullOrWhiteSpace($Serial)) {
+        $serialMatches = @($rows | Where-Object { ([string]$_.Serial).Trim() -eq $Serial.Trim() })
+    }
+    if ($serialMatches.Count -eq 1) {
+        return [pscustomobject]@{
+            Success = $true
+            MatchType = "serial"
+            Row = $serialMatches[0]
+            Message = ""
+        }
+    }
+    if ($serialMatches.Count -gt 1) {
+        return [pscustomobject]@{
+            Success = $false
+            MatchType = "serial"
+            Row = $null
+            Message = ("Serial {0} matches multiple desiredstate rows." -f $Serial)
+        }
+    }
+
+    $normalizedMac = Normalize-SelMacAddress -Mac $Mac
+    $macMatches = @()
+    if (-not [string]::IsNullOrWhiteSpace($normalizedMac)) {
+        $macMatches = @($rows | Where-Object { (Normalize-SelMacAddress -Mac ([string]$_.Mac)) -eq $normalizedMac })
+    }
+    if ($macMatches.Count -eq 1) {
+        return [pscustomobject]@{
+            Success = $true
+            MatchType = "mac"
+            Row = $macMatches[0]
+            Message = ""
+        }
+    }
+    if ($macMatches.Count -gt 1) {
+        return [pscustomobject]@{
+            Success = $false
+            MatchType = "mac"
+            Row = $null
+            Message = ("MAC {0} matches multiple desiredstate rows." -f $Mac)
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = $false
+        MatchType = ""
+        Row = $null
+        Message = ("No desiredstate row matched Serial={0} or MAC={1}." -f $Serial, $Mac)
+    }
+}
+
+function New-SelMassProvisioningRow {
+    param(
+        [int]$Sequence,
+        [string]$Mode,
+        [string]$Status,
+        [string]$Serial,
+        [string]$Mac,
+        [string]$OldIp,
+        [string]$NewIp,
+        [string]$TargetMask,
+        [string]$TargetGateway,
+        [string]$ObservedMask,
+        [string]$ObservedGateway,
+        [string]$Note
+    )
+
+    return [pscustomobject]@{
+        Sequence = [int]$Sequence
+        Mode = [string]$Mode
+        Status = [string]$Status
+        Serial = [string]$Serial
+        Mac = [string]$Mac
+        OldIp = [string]$OldIp
+        NewIp = [string]$NewIp
+        TargetMask = [string]$TargetMask
+        TargetGateway = [string]$TargetGateway
+        ObservedMask = [string]$ObservedMask
+        ObservedGateway = [string]$ObservedGateway
+        Note = [string]$Note
+    }
+}
+
+function Show-SelMassProvisioningFailure {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    Clear-SelProgressIndicator
+    Write-Host ("Mass provisioning failed: {0}" -f $Message)
+}
+
+function Get-SelMassProvisioningNextTarget {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("range", "interactive", "desiredstate")]
+        [string]$Mode,
+        [Parameter(Mandatory = $true)]
+        [int]$Sequence,
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Defaults,
+        [AllowNull()]
+        [pscustomobject]$Identity,
+        [AllowNull()]
+        [string[]]$RangeIps,
+        [int]$RangeIndex = 0,
+        [string]$CurrentMask,
+        [string]$CurrentGateway,
+        [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv"),
+        [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
+    )
+
+    switch ($Mode) {
+        "range" {
+            if ($RangeIndex -ge @($RangeIps).Count) {
+                return [pscustomobject]@{
+                    Success = $false
+                    Exhausted = $true
+                    Message = "No remaining IPs in the selected range."
+                }
+            }
+
+            $targetIp = [string]$RangeIps[$RangeIndex]
+            return [pscustomobject]@{
+                Success = $true
+                Exhausted = $false
+                Consumed = $false
+                Ip = $targetIp
+                Mask = $(if (-not [string]::IsNullOrWhiteSpace($CurrentMask)) { $CurrentMask } else { [string]$Defaults.TargetSubnetMask })
+                Gateway = $(if (-not [string]::IsNullOrWhiteSpace($CurrentGateway)) { $CurrentGateway } else { [string]$Defaults.TargetGateway })
+                Source = "range"
+                Message = ("Next target IP: {0}" -f $targetIp)
+            }
+        }
+        "interactive" {
+            Write-Host ("Detected relay: Serial={0}, MAC={1}, Current IP={2}" -f [string]$Identity.Serial, [string]$Identity.Mac, [string]$Identity.CurrentIp)
+            $targetIp = & $ReadInput "Target IP"
+            if ([string]::IsNullOrWhiteSpace($targetIp)) {
+                return [pscustomobject]@{
+                    Success = $false
+                    Exhausted = $false
+                    Consumed = $false
+                    Message = "Target IP entry was blank."
+                }
+            }
+
+            $maskPrompt = if ([string]::IsNullOrWhiteSpace($CurrentMask)) { "Target subnet mask (blank to keep unchanged)" } else { "Target subnet mask [{0}] (blank to keep current default)" -f $CurrentMask }
+            $gatewayPrompt = if ([string]::IsNullOrWhiteSpace($CurrentGateway)) { "Target gateway (blank to keep unchanged)" } else { "Target gateway [{0}] (blank to keep current default)" -f $CurrentGateway }
+            $enteredMask = & $ReadInput $maskPrompt
+            $enteredGateway = & $ReadInput $gatewayPrompt
+
+            return [pscustomobject]@{
+                Success = $true
+                Exhausted = $false
+                Consumed = $false
+                Ip = [string]$targetIp
+                Mask = $(if ([string]::IsNullOrWhiteSpace($enteredMask)) { $CurrentMask } else { [string]$enteredMask })
+                Gateway = $(if ([string]::IsNullOrWhiteSpace($enteredGateway)) { $CurrentGateway } else { [string]$enteredGateway })
+                Source = "interactive"
+                Message = ""
+            }
+        }
+        "desiredstate" {
+            Write-Host ("Detected relay: Serial={0}, MAC={1}, Current IP={2}" -f [string]$Identity.Serial, [string]$Identity.Mac, [string]$Identity.CurrentIp)
+            $match = Resolve-SelDesiredStateProvisionTarget -Serial ([string]$Identity.Serial) -Mac ([string]$Identity.Mac) -DesiredStatePath $DesiredStatePath
+            if (-not $match.Success) {
+                Write-Host ("No desiredstate match found for detected relay: Serial={0}, MAC={1}, Current IP={2}" -f [string]$Identity.Serial, [string]$Identity.Mac, [string]$Identity.CurrentIp)
+                if (-not [string]::IsNullOrWhiteSpace([string]$match.Message)) {
+                    Write-Host ("  {0}" -f [string]$match.Message)
+                }
+                return [pscustomobject]@{
+                    Success = $false
+                    Exhausted = $false
+                    Consumed = $false
+                    Message = [string]$match.Message
+                }
+            }
+
+            $row = $match.Row
+            $displayMask = if ([string]::IsNullOrWhiteSpace([string]$row.DesiredSubnetMask)) { "(unchanged)" } else { [string]$row.DesiredSubnetMask }
+            $displayGateway = if ([string]::IsNullOrWhiteSpace([string]$row.DesiredGateway)) { "(unchanged)" } else { [string]$row.DesiredGateway }
+            Write-Host ("Desiredstate match ({0}): Serial={1}, MAC={2}, Target IP={3}, Mask={4}, Gateway={5}" -f [string]$match.MatchType, [string]$row.Serial, [string]$row.Mac, [string]$row.DesiredIP, $displayMask, $displayGateway)
+            return [pscustomobject]@{
+                Success = $true
+                Exhausted = $false
+                Consumed = $false
+                Ip = [string]$row.DesiredIP
+                Mask = [string]$row.DesiredSubnetMask
+                Gateway = [string]$row.DesiredGateway
+                Source = ("desiredstate-{0}" -f [string]$match.MatchType)
+                DesiredStateRow = $row
+                Message = ""
+            }
+        }
     }
 }
 
@@ -974,9 +1494,11 @@ function Confirm-SelReIpPlan {
         [AllowNull()]
         [string]$ObservedSerial,
         [AllowNull()]
-        [pscustomobject]$PreEthParsed
+        [pscustomobject]$PreEthParsed,
+        [switch]$AutoConfirm
     )
 
+    Clear-SelProgressIndicator
     Write-Host ""
     Write-Host "Re-IP Confirmation"
     Write-Host ("  Current IP: {0}" -f $HostIp)
@@ -992,8 +1514,13 @@ function Confirm-SelReIpPlan {
         }
     }
     Write-Host ("  Target IP: {0}" -f $Target.Ip)
-    Write-Host ("  Target Mask: {0}" -f $Target.Mask)
-    Write-Host ("  Target Gateway: {0}" -f $Target.Gateway)
+    Write-Host ("  Target Mask: {0}" -f $(if ([string]::IsNullOrWhiteSpace([string]$Target.Mask)) { "(unchanged)" } else { [string]$Target.Mask }))
+    Write-Host ("  Target Gateway: {0}" -f $(if ([string]::IsNullOrWhiteSpace([string]$Target.Gateway)) { "(unchanged)" } else { [string]$Target.Gateway }))
+
+    if ($AutoConfirm) {
+        Write-Host "  Auto-confirm: yes"
+        return $true
+    }
 
     $choice = Read-Host "Apply these settings? (y/N)"
     return ($choice -match "^(?i)y(es)?$")
@@ -2331,6 +2858,7 @@ function Invoke-SelInventory {
     Add-SelDeviceEvent -Serial $observedSerial -Event $serPullEvent
     Update-SelDesiredStateObserved -Serial $observedSerial -Name ([string]$metadata.Name) -Description ([string]$metadata.Description) -Mac ([string]$ethParsed.MAC) -ObservedIP $observedIp -ObservedPrimaryInterface ([string]$ethernetModel.primaryInterface) -ObservedActiveInterface ([string]$ethernetModel.activeInterface) -ObservedNetMode ([string]$ethernetModel.netMode) -ObservedFirmwareLabel (Get-SelFirmwareLabelFromFid -Fid $observedFid) -ObservedFid $observedFid
     Write-SelTrace -TraceContext $trace -Message ("inventory persistence complete serial={0} observedIp={1} status={2}" -f $observedSerial, $observedIp, $status)
+    Clear-SelProgressIndicator
     if ($PassThru) {
         Write-Host ("Log written: {0}" -f $trace.LogPath)
     }
@@ -2375,7 +2903,8 @@ function Invoke-SelReIp {
         [string]$Profile = "factory",
         [switch]$DebugTransport,
         [switch]$PassThru,
-        [switch]$SkipInventoryUpdate
+        [switch]$SkipInventoryUpdate,
+        [switch]$AutoConfirm
     )
 
     $trace = New-SelTraceContext -Enabled:$DebugTransport -Operation "reip" -HostIp $HostIp -Serial $Serial
@@ -2411,7 +2940,7 @@ function Invoke-SelReIp {
         $Serial = $startingSerial
     }
 
-    $confirmed = Confirm-SelReIpPlan -HostIp $HostIp -Target $target -ObservedSerial $startingSerial -PreEthParsed $preEthParsed
+    $confirmed = Confirm-SelReIpPlan -HostIp $HostIp -Target $target -ObservedSerial $startingSerial -PreEthParsed $preEthParsed -AutoConfirm:$AutoConfirm
     if (-not $confirmed) {
         Stop-SelPlinkSession -Session $preCapture.Session
         $cancelEvent = [pscustomobject]@{
@@ -2613,6 +3142,7 @@ function Invoke-SelReIp {
     $displaySerial = if ([string]::IsNullOrWhiteSpace($effectiveSerial)) { "(unknown)" } else { $effectiveSerial }
     $resultSummary = "Re-IP completed for serial {0}: {1} -> {2} ({3}). Target: IP={4}, Mask={5}, Gateway={6}. Observed: IP={7}, Mask={8}, Gateway={9}.{10}" -f $displaySerial, $HostIp, $target.Ip, $status, $target.Ip, $targetMaskDisplay, $targetGatewayDisplay, $observedIpDisplay, $observedMaskDisplay, $observedGatewayDisplay, $skipUpdateNote
 
+    Clear-SelProgressIndicator
     if ($PassThru) {
         Write-Host ("Log written: {0}" -f $trace.LogPath)
         Write-Host $resultSummary
@@ -2639,6 +3169,279 @@ function Invoke-SelReIp {
     Write-Output $resultSummary
 }
 
+function Invoke-SelMassProvisioning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("range", "interactive", "desiredstate")]
+        [string]$Mode,
+        [string]$HostIp,
+        [string]$StartIp,
+        [string]$EndIp,
+        [string]$Mask,
+        [string]$Gateway,
+        [string]$Profile = "factory",
+        [switch]$DebugTransport,
+        [switch]$PassThru,
+        [switch]$SkipInventoryUpdate,
+        [string]$DesiredStatePath = (Get-SelDataPath -ChildPath "desiredstate.csv"),
+        [scriptblock]$ReadInput = { param([string]$Prompt) Read-Host $Prompt }
+    )
+
+    $defaults = Get-SelDefaults -Profile $Profile
+    $sourceHostIp = if ([string]::IsNullOrWhiteSpace($HostIp)) { [string]$defaults.DefaultIP } else { [string]$HostIp }
+    if ([string]::IsNullOrWhiteSpace($sourceHostIp)) {
+        throw "Mass provisioning requires a current/default relay IP."
+    }
+
+    $currentMask = if ([string]::IsNullOrWhiteSpace($Mask)) { [string]$defaults.TargetSubnetMask } else { [string]$Mask }
+    $currentGateway = if ([string]::IsNullOrWhiteSpace($Gateway)) { [string]$defaults.TargetGateway } else { [string]$Gateway }
+    $rangeIps = @()
+    if ($Mode -eq "range") {
+        if ([string]::IsNullOrWhiteSpace($StartIp) -or [string]::IsNullOrWhiteSpace($EndIp)) {
+            throw "Range mode requires both start and end IPs."
+        }
+        $rangeIps = @(Get-SelIpv4Range -StartIp $StartIp -EndIp $EndIp)
+        $rangeMask = if ([string]::IsNullOrWhiteSpace($currentMask)) { [string]$defaults.DefaultSubnetMask } else { $currentMask }
+        foreach ($probeIp in @($StartIp, $EndIp)) {
+            $networkCheck = Test-SelLocalIpv4OnTargetNetwork -TargetIp $probeIp -Mask $rangeMask
+            if ($networkCheck.Checked -and -not $networkCheck.Success) {
+                Write-Host ("Warning: local PC does not appear on the target network for {0}/{1}. Local IPv4: {2}" -f $probeIp, $rangeMask, (@($networkCheck.LocalIPs) -join ", "))
+                $continueChoice = & $ReadInput "Continue anyway? [y/N]"
+                if ($continueChoice -notmatch "^(?i)y(es)?$") {
+                    $aborted = [pscustomobject]@{
+                        Action = "mass-reip"
+                        Mode = $Mode
+                        Status = "cancelled"
+                        HostIp = $sourceHostIp
+                        SkipInventoryUpdate = [bool]$SkipInventoryUpdate
+                        Results = @()
+                        ExportRows = @()
+                    }
+                    if ($PassThru) { return $aborted }
+                    return
+                }
+                break
+            }
+        }
+    }
+    elseif ($Mode -eq "desiredstate") {
+        $conflictCheck = Test-SelDesiredStateConflicts -DesiredStatePath $DesiredStatePath
+        if (-not $conflictCheck.IsValid) {
+            Write-Host ""
+            Write-Host "desiredstate.csv conflicts detected:"
+            foreach ($conflict in @($conflictCheck.Conflicts)) {
+                Write-Host ("  - {0}" -f [string]$conflict.Message)
+            }
+            $blocked = [pscustomobject]@{
+                Action = "mass-reip"
+                Mode = $Mode
+                Status = "blocked-conflicts"
+                HostIp = $sourceHostIp
+                SkipInventoryUpdate = [bool]$SkipInventoryUpdate
+                Results = @()
+                ExportRows = @()
+                Conflicts = @($conflictCheck.Conflicts)
+            }
+            if ($PassThru) { return $blocked }
+            return
+        }
+
+        $targetRows = @($conflictCheck.Rows | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.DesiredIP) })
+        foreach ($row in $targetRows) {
+            $effectiveMask = if (-not [string]::IsNullOrWhiteSpace([string]$row.DesiredSubnetMask)) { [string]$row.DesiredSubnetMask } elseif (-not [string]::IsNullOrWhiteSpace([string]$defaults.TargetSubnetMask)) { [string]$defaults.TargetSubnetMask } else { [string]$defaults.DefaultSubnetMask }
+            if ([string]::IsNullOrWhiteSpace([string]$effectiveMask)) {
+                continue
+            }
+            $networkCheck = Test-SelLocalIpv4OnTargetNetwork -TargetIp ([string]$row.DesiredIP) -Mask $effectiveMask
+            if ($networkCheck.Checked -and -not $networkCheck.Success) {
+                Write-Host ("Warning: local PC does not appear on the target network for desired IP {0}/{1}. Local IPv4: {2}" -f [string]$row.DesiredIP, $effectiveMask, (@($networkCheck.LocalIPs) -join ", "))
+                $continueChoice = & $ReadInput "Continue anyway? [y/N]"
+                if ($continueChoice -notmatch "^(?i)y(es)?$") {
+                    $aborted = [pscustomobject]@{
+                        Action = "mass-reip"
+                        Mode = $Mode
+                        Status = "cancelled"
+                        HostIp = $sourceHostIp
+                        SkipInventoryUpdate = [bool]$SkipInventoryUpdate
+                        Results = @()
+                        ExportRows = @()
+                    }
+                    if ($PassThru) { return $aborted }
+                    return
+                }
+                break
+            }
+        }
+    }
+
+    $rows = New-Object System.Collections.ArrayList
+    $sessionFailures = New-Object System.Collections.ArrayList
+    $rangeIndex = 0
+    $sequence = 0
+
+    Write-Host ""
+    Write-Host ("1X1 Mass Provisioning ({0})" -f $Mode)
+
+    while ($true) {
+        if ($Mode -eq "range" -and $rangeIndex -ge @($rangeIps).Count) {
+            break
+        }
+
+        $sequence++
+        Write-Host ""
+        if ($Mode -eq "range") {
+            Write-Host ("Source/default relay IP: {0}" -f $sourceHostIp)
+            Write-Host ("Next target IP: {0}" -f [string]$rangeIps[$rangeIndex])
+            $null = & $ReadInput "Connect one SEL at a time, then press Enter to continue"
+        }
+        elseif ($Mode -eq "interactive") {
+            Write-Host ("Source/default relay IP: {0}" -f $sourceHostIp)
+            $null = & $ReadInput "Connect one SEL at a time, then press Enter to continue"
+        }
+
+        $trace = New-SelTraceContext -Enabled:$DebugTransport -Operation ("mass-reip-{0}" -f $Mode) -HostIp $sourceHostIp -Serial ""
+        Write-SelProgress -Message ("Identifying relay at {0}." -f $sourceHostIp) -TraceContext $trace
+        $preflightPing = Invoke-SelPingCheck -HostIp $sourceHostIp -TraceContext $trace
+        if (-not $preflightPing.Success) {
+            $failureNote = ("Default/current IP {0} is not reachable by ping ({1})." -f $sourceHostIp, [string]$preflightPing.FailureReason)
+            Show-SelMassProvisioningFailure -Message $failureNote
+            [void]$sessionFailures.Add([pscustomobject]@{
+                Sequence = $sequence
+                Mode = $Mode
+                HostIp = $sourceHostIp
+                Note = $failureNote
+            })
+            $retryChoice = & $ReadInput "Retry this relay? [Y/N]"
+            if ($retryChoice -match "^(?i:y|yes)?$") {
+                $sequence--
+                continue
+            }
+            break
+        }
+        else {
+            try {
+                $capture = Invoke-SelPlinkIdentityCapture -HostIp $sourceHostIp -AccPassword ([string]$defaults.ACCPassword) -TwoAcPassword ([string]$defaults.'2ACPassword') -IncludeSer -TraceContext $trace
+                $idParsed = ConvertFrom-SelIdOutput -Text $capture.ID
+                $staParsed = ConvertFrom-SelStaOutput -Text $capture.SER
+                $ethParsed = ConvertFrom-SelEthOutput -Text $capture.ETH
+                $serial = [string]$staParsed.Serial
+                if ([string]::IsNullOrWhiteSpace($serial)) {
+                    $serial = Get-SelSerialFromIdParsed -IdParsed $idParsed
+                }
+                $identity = [pscustomobject]@{
+                    Serial = [string]$serial
+                    Mac = [string]$ethParsed.MAC
+                    CurrentIp = [string]$ethParsed.IP
+                    CurrentMask = [string]$ethParsed.Mask
+                    CurrentGateway = [string]$ethParsed.Gateway
+                }
+
+                $effectiveMaskDefault = if (-not [string]::IsNullOrWhiteSpace($currentMask)) { $currentMask } else { [string]$ethParsed.Mask }
+                $effectiveGatewayDefault = if (-not [string]::IsNullOrWhiteSpace($currentGateway)) { $currentGateway } else { [string]$ethParsed.Gateway }
+                $targetPlan = Get-SelMassProvisioningNextTarget -Mode $Mode -Sequence $sequence -Defaults $defaults -Identity $identity -RangeIps $rangeIps -RangeIndex $rangeIndex -CurrentMask $effectiveMaskDefault -CurrentGateway $effectiveGatewayDefault -DesiredStatePath $DesiredStatePath -ReadInput $ReadInput
+
+                if (-not $targetPlan.Success) {
+                    $status = if ($targetPlan.Exhausted) { "completed" } else { "skipped" }
+                    [void]$rows.Add((New-SelMassProvisioningRow -Sequence $sequence -Mode $Mode -Status $status -Serial $identity.Serial -Mac $identity.Mac -OldIp $identity.CurrentIp -NewIp "" -TargetMask "" -TargetGateway "" -ObservedMask $identity.CurrentMask -ObservedGateway $identity.CurrentGateway -Note ([string]$targetPlan.Message)))
+                    if ($targetPlan.Exhausted) {
+                        break
+                    }
+                }
+                else {
+                    if ($Mode -eq "desiredstate") {
+                        $continueAssignment = & $ReadInput "Continue with this assignment? [Y/N]"
+                        if ($continueAssignment -notmatch "^(?i)y(es)?$") {
+                            [void]$rows.Add((New-SelMassProvisioningRow -Sequence $sequence -Mode $Mode -Status "skipped" -Serial $identity.Serial -Mac $identity.Mac -OldIp $identity.CurrentIp -NewIp [string]$targetPlan.Ip -TargetMask [string]$targetPlan.Mask -TargetGateway [string]$targetPlan.Gateway -ObservedMask $identity.CurrentMask -ObservedGateway $identity.CurrentGateway -Note "Operator declined desiredstate assignment."))
+                            $nextChoice = & $ReadInput "Connect next relay and continue? [Y/N]"
+                            if ($nextChoice -notmatch "^(?i:y|yes)?$") {
+                                break
+                            }
+                            continue
+                        }
+                    }
+
+                    $effectiveNetworkMask = if (-not [string]::IsNullOrWhiteSpace([string]$targetPlan.Mask)) { [string]$targetPlan.Mask } elseif (-not [string]::IsNullOrWhiteSpace([string]$identity.CurrentMask)) { [string]$identity.CurrentMask } else { [string]$defaults.TargetSubnetMask }
+                    $networkCheck = Test-SelLocalIpv4OnTargetNetwork -TargetIp ([string]$targetPlan.Ip) -Mask $effectiveNetworkMask
+                    if ($networkCheck.Checked -and -not $networkCheck.Success) {
+                        Write-Host ("Warning: local PC does not appear on the target network for {0}/{1}. Local IPv4: {2}" -f [string]$targetPlan.Ip, $effectiveNetworkMask, (@($networkCheck.LocalIPs) -join ", "))
+                        $continueChoice = & $ReadInput "Continue anyway? [y/N]"
+                        if ($continueChoice -notmatch "^(?i)y(es)?$") {
+                            [void]$rows.Add((New-SelMassProvisioningRow -Sequence $sequence -Mode $Mode -Status "skipped" -Serial $identity.Serial -Mac $identity.Mac -OldIp $identity.CurrentIp -NewIp [string]$targetPlan.Ip -TargetMask [string]$targetPlan.Mask -TargetGateway [string]$targetPlan.Gateway -ObservedMask $identity.CurrentMask -ObservedGateway $identity.CurrentGateway -Note "Operator declined target-network warning."))
+                            if ($Mode -eq "range") {
+                                # Keep the same target IP pending for the next relay.
+                            }
+                        }
+                        else {
+                            $reipResult = Invoke-SelReIp -Serial $identity.Serial -HostIp $sourceHostIp -Ip ([string]$targetPlan.Ip) -Mask ([string]$targetPlan.Mask) -Gateway ([string]$targetPlan.Gateway) -Profile $Profile -DebugTransport:$DebugTransport -PassThru -SkipInventoryUpdate:$SkipInventoryUpdate -AutoConfirm
+                            [void]$rows.Add((New-SelMassProvisioningRow -Sequence $sequence -Mode $Mode -Status ([string]$reipResult.Status) -Serial ([string]$reipResult.Serial) -Mac $identity.Mac -OldIp $identity.CurrentIp -NewIp ([string]$reipResult.TargetIp) -TargetMask ([string]$reipResult.TargetMask) -TargetGateway ([string]$reipResult.TargetGateway) -ObservedMask ([string]$reipResult.ObservedMask) -ObservedGateway ([string]$reipResult.ObservedGateway) -Note ""))
+                            if ($Mode -eq "range" -and [string]$reipResult.Status -eq "success") {
+                                $rangeIndex++
+                            }
+                        }
+                    }
+                    else {
+                        $reipResult = Invoke-SelReIp -Serial $identity.Serial -HostIp $sourceHostIp -Ip ([string]$targetPlan.Ip) -Mask ([string]$targetPlan.Mask) -Gateway ([string]$targetPlan.Gateway) -Profile $Profile -DebugTransport:$DebugTransport -PassThru -SkipInventoryUpdate:$SkipInventoryUpdate -AutoConfirm
+                        [void]$rows.Add((New-SelMassProvisioningRow -Sequence $sequence -Mode $Mode -Status ([string]$reipResult.Status) -Serial ([string]$reipResult.Serial) -Mac $identity.Mac -OldIp $identity.CurrentIp -NewIp ([string]$reipResult.TargetIp) -TargetMask ([string]$reipResult.TargetMask) -TargetGateway ([string]$reipResult.TargetGateway) -ObservedMask ([string]$reipResult.ObservedMask) -ObservedGateway ([string]$reipResult.ObservedGateway) -Note ""))
+                        if ($Mode -eq "range" -and [string]$reipResult.Status -eq "success") {
+                            $rangeIndex++
+                        }
+                    }
+                }
+            }
+            catch {
+                $exceptionMessage = [string]$_.Exception.Message
+                $failureNote = $exceptionMessage
+                if ($exceptionMessage -match "Timed out waiting for pattern") {
+                    $failureNote = ("{0} responded to ping but did not present a usable SEL Telnet prompt." -f $sourceHostIp)
+                }
+                Show-SelMassProvisioningFailure -Message $failureNote
+                [void]$sessionFailures.Add([pscustomobject]@{
+                    Sequence = $sequence
+                    Mode = $Mode
+                    HostIp = $sourceHostIp
+                    Note = $failureNote
+                })
+                $retryChoice = & $ReadInput "Retry this relay? [Y/N]"
+                if ($retryChoice -match "^(?i:y|yes)?$") {
+                    $sequence--
+                    continue
+                }
+                break
+            }
+        }
+
+        if ($Mode -eq "range" -and $rangeIndex -ge @($rangeIps).Count) {
+            break
+        }
+
+        $nextChoice = & $ReadInput "Connect next relay and continue? [Y/N]"
+        if ($nextChoice -notmatch "^(?i:y|yes)?$") {
+            break
+        }
+    }
+
+    $results = @($rows)
+    $failureCount = @($results | Where-Object { $_.Status -eq "failed" }).Count + @($sessionFailures).Count
+    $overallStatus = if ($failureCount -gt 0) { "completed-with-failures" } else { "completed" }
+    $sessionResult = [pscustomobject]@{
+        Action = "mass-reip"
+        Mode = $Mode
+        Status = $overallStatus
+        HostIp = $sourceHostIp
+        SkipInventoryUpdate = [bool]$SkipInventoryUpdate
+        Results = $results
+        ExportRows = $results
+        SessionFailures = @($sessionFailures)
+        FailureCount = $failureCount
+    }
+
+    if ($PassThru) {
+        return $sessionResult
+    }
+
+    return $null
+}
+
 function Invoke-SelFwUpgrade {
     param(
         [string]$Serial,
@@ -2661,6 +3464,11 @@ Export-ModuleMember -Function @(
     "Resolve-SelInventoryHostIp",
     "Get-SelDefaultsRows",
     "Get-SelDefaults",
+    "Get-SelSettingsPath",
+    "Get-SelUiSettings",
+    "Set-SelConsoleOutputPreference",
+    "Test-SelConsoleOutputEnabled",
+    "Clear-SelProgressIndicator",
     "Get-SelDesiredStateRows",
     "Get-SelDesiredStateActiveRows",
     "Get-SelDesiredStateMetadata",
@@ -2672,6 +3480,17 @@ Export-ModuleMember -Function @(
     "Read-SelPromptWithDefault",
     "Invoke-SelPingCheck",
     "Wait-SelPingRecovery",
+    "ConvertTo-SelIpv4UInt32",
+    "Get-SelIpv4Range",
+    "Get-SelLocalIpv4Addresses",
+    "Test-SelLocalIpv4OnTargetNetwork",
+    "Normalize-SelMacAddress",
+    "Test-SelDesiredStateConflicts",
+    "Resolve-SelDesiredStateProvisionTarget",
+    "New-SelMassProvisioningRow",
+    "Show-SelMassProvisioningFailure",
+    "Get-SelMassProvisioningNextTarget",
+    "Analyze-SelPingOutput",
     "Invoke-SelFastReconnectCapture",
     "Confirm-SelReIpPlan",
     "Invoke-SelPlinkReIpCapture",
@@ -2688,5 +3507,6 @@ Export-ModuleMember -Function @(
     "Write-SelSerEventStore",
     "Invoke-SelInventory",
     "Invoke-SelReIp",
+    "Invoke-SelMassProvisioning",
     "Invoke-SelFwUpgrade"
 )

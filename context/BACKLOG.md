@@ -26,15 +26,24 @@
 - Re-IP menu simplified to host-IP-driven prompts without serial/profile entry
 - Re-IP menu now prompts `Update inventory? [N]` and remembers the in-session choice
 - Re-IP run report now shows old IP -> new IP and prints immediately after completion
+- `1X1 Mass Provisioning` added under re-IP with range, interactive, and desiredstate modes
+- Desired-state mass provisioning validates duplicate/conflicting Serial, MAC, and DesiredIP rows before starting
+- Mass provisioning validates whether the local PC appears to be on the target subnet
+- Mass provisioning now reports pre-identification failures as session-level failures instead of fake `(unknown)` device rows
+- Mass provisioning can export its mapping report to CSV under `data/`
+- Persistent `ConsoleOutput` preference added via `data/settings.json`
+- Startup banner now always prints even when console chatter is suppressed
+- ASCII progress indicator added for active operations
 - Real `SET P 1` and `STA` transcripts captured under `context/transcripts/`
 - Normalized SEL-751 Ethernet model added to inventory parsing (`portGroup=1`, `interfaces=1A/1B`, `primaryInterface`, `activeInterface`, `configuredPrimarySelector`, `netMode`)
 - Desired-state schema extended for interface state (`DesiredPrimaryInterface`, `ObservedPrimaryInterface`, `ObservedActiveInterface`, `ObservedNetMode`)
-- CLI/scaffold reip selector added as `-PrimaryInterface 1A|1B` with mapping to relay `NETPORT A|B`
 - Backward-compat alias writes retained (`primaryPort`/`activePort`) while normalized fields are preferred
 
 ## In progress
 - Context/doc cleanup to match the live re-IP workflow and current menu behavior
 - Decide local ignore policy for generated runtime artifacts (`logs/`, local device snapshots)
+- Extend local-host target-network validation across all re-IP paths, not only 1X1 mass provisioning
+- Decide whether to keep, simplify, or roll back the current progress indicator
 
 ## Next
 ### 1) CLI scaffolding
@@ -63,7 +72,7 @@
 - Ignores reserved/inactive rows (`TEMPLATE`, blank serial, or `Active=false`).
 **Blockers:** none
 
-### 4) Re-IP workflow (next major implementation)
+### 4) Re-IP workflow
 **Acceptance:**
 - Keep transcript-backed prompt handling stable as more relay variants are observed.
 - Preserve single-device address-change scope (`IPADDR`, `SUBNETM`, `DEFRTR`) unless interface switching is deliberately reintroduced later.

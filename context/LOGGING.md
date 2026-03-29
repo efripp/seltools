@@ -30,6 +30,8 @@ Example:
 
 This is the authoritative transcript of the run.
 
+Run-log creation is always on. `-DebugTransport` increases live transport detail, but it does not control whether a run log exists.
+
 ---
 
 ## Why One Log Per Run
@@ -103,6 +105,29 @@ Example:
 ```
 
 When the serial number becomes known, replace `DEV ?` with the real device serial.
+
+---
+
+## Console vs file output
+
+SelTool now separates:
+
+- always-on run log file output
+- optional live console chatter
+- console-only progress indicator
+
+`ConsoleOutput` is a persistent UI preference stored in `data/settings.json`:
+
+- `enabled`
+- `suppressed`
+
+When console output is suppressed:
+
+- startup banner still prints
+- progress indicator still shows activity
+- trace chatter and most progress lines stay hidden
+
+The progress indicator is console-only and must not be written into the run log.
 
 ---
 
@@ -249,6 +274,31 @@ At minimum, log:
 - invalid access level
 - command unavailable
 - front-panel remediation required
+- ping failure classification (`Destination host unreachable`, `Request timed out`, `General failure`, host resolution failure)
+
+---
+
+## Ping classification note
+
+Windows `ping.exe` output must be parsed carefully.
+
+Do not treat every `Reply from ...` line as success.
+
+Examples:
+
+- success:
+  - `Reply from 192.168.1.2: bytes=32 time<1ms TTL=64`
+- failure:
+  - `Reply from 192.168.1.200: Destination host unreachable.`
+  - `Request timed out.`
+  - `General failure.`
+
+The run log should preserve enough detail to distinguish:
+
+- actual echo reply success
+- network unreachable
+- timeout
+- non-ping connectivity problems such as “ping succeeded but no SEL Telnet prompt was received”
 
 ---
 

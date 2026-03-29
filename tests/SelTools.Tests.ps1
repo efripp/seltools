@@ -108,6 +108,77 @@ site-a,10.10.0.10,255.255.255.0,255.255.255.0,10.10.0.1,10.10.0.100,10.10.0.199,
     }
 }
 
+Describe "UI settings" {
+    It "defaults console output to enabled when settings file is missing" {
+        $tmp = Join-Path $TestDrive "settings.json"
+        (Test-SelConsoleOutputEnabled -Path $tmp) | Should Be $true
+    }
+
+    It "persists console output preference" {
+        $tmp = Join-Path $TestDrive "settings.json"
+        Set-SelConsoleOutputPreference -Enabled:$false -Path $tmp
+        (Test-SelConsoleOutputEnabled -Path $tmp) | Should Be $false
+        Set-SelConsoleOutputPreference -Enabled:$true -Path $tmp
+        (Test-SelConsoleOutputEnabled -Path $tmp) | Should Be $true
+    }
+}
+
+Describe "Progress indicator" {
+    It "writes host progress even when console output is suppressed" {
+        InModuleScope SelTools {
+            Mock Test-SelConsoleOutputEnabled { $false }
+            Mock Write-Progress { }
+            Mock Write-Host { }
+            Mock Write-SelTrace { }
+
+            Write-SelProgress -Message "Opening Telnet session." -TraceContext $null
+
+            Assert-MockCalled Write-Progress -Times 1
+            Assert-MockCalled Write-Host -Times 0
+        }
+    }
+
+    It "writes styled host progress when console output is enabled" {
+        InModuleScope SelTools {
+            Mock Test-SelConsoleOutputEnabled { $true }
+            Mock Write-Progress { }
+            Mock Write-Host { }
+            Mock Write-SelTrace { }
+
+            Write-SelProgress -Message "Opening Telnet session." -TraceContext $null
+
+            Assert-MockCalled Write-Progress -Times 1
+            Assert-MockCalled Write-Host -Times 1 -ParameterFilter { $Object -match "Opening Telnet session\." }
+        }
+    }
+}
+
+Describe "Ping analysis" {
+    It "treats TTL replies as success" {
+        $result = Analyze-SelPingOutput -Output @'
+Pinging 192.168.1.2 with 32 bytes of data:
+Reply from 192.168.1.2: bytes=32 time<1ms TTL=64
+'@
+        $result.Success | Should Be $true
+        $result.FailureReason | Should Be ""
+    }
+
+    It "treats destination host unreachable as failure" {
+        $result = Analyze-SelPingOutput -Output @'
+Pinging 192.168.1.2 with 32 bytes of data:
+Reply from 192.168.1.200: Destination host unreachable.
+'@
+        $result.Success | Should Be $false
+        $result.FailureReason | Should Be "DestinationHostUnreachable"
+    }
+
+    It "treats request timed out as failure" {
+        $result = Analyze-SelPingOutput -Output "Request timed out."
+        $result.Success | Should Be $false
+        $result.FailureReason | Should Be "RequestTimedOut"
+    }
+}
+
 Describe "Plink path resolution" {
     It "prefers override path when provided" {
         $override = Join-Path $TestDrive "plink-override.exe"
@@ -178,6 +249,207 @@ Describe "ReIP prompting and host resolution" {
         $result = Resolve-SelReIpHostIp -Serial "3241995707" -HostIp "" -ProfileDefaultIp "192.168.1.2"
         $result.HostIp | Should Be "192.168.1.2"
         $result.Source | Should Be "profile-default"
+    }
+}
+
+Describe "Mass provisioning helpers" {
+    It "detects duplicate desired state serial, mac, and desired ip conflicts" {
+        $tmp = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredPrimaryInterface,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedPrimaryInterface,ObservedActiveInterface,ObservedNetMode,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+1001,TRUE,,,,192.168.1.101,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+1001,TRUE,,,,192.168.1.102,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+1002,TRUE,,,00-30-A7-00-00-01,192.168.1.103,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+1003,TRUE,,,00-30-A7-00-00-01,192.168.1.104,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+1004,TRUE,,,00-30-A7-00-00-04,192.168.1.104,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+'@ | Set-Content $tmp
+
+        $result = Test-SelDesiredStateConflicts -DesiredStatePath $tmp
+        $result.IsValid | Should Be $false
+        (@($result.Conflicts | Where-Object { $_.Type -eq "duplicate-serial" })).Count | Should Be 1
+        (@($result.Conflicts | Where-Object { $_.Type -eq "duplicate-mac" })).Count | Should Be 1
+        (@($result.Conflicts | Where-Object { $_.Type -eq "duplicate-desiredip" })).Count | Should Be 1
+    }
+
+    It "matches desired state by serial first and falls back to mac" {
+        $tmp = Join-Path $TestDrive "desiredstate.csv"
+        @'
+Serial,Active,Name,Description,Mac,DesiredIP,DesiredSubnetMask,DesiredGateway,DesiredPrimaryInterface,DesiredFirmwareLabel,DesiredConfigSha256,ObservedIP,ObservedPrimaryInterface,ObservedActiveInterface,ObservedNetMode,ObservedFirmwareLabel,ObservedFid,LastSeen,LastAction,LastResult,Notes
+1001,TRUE,,,00-30-A7-00-00-01,192.168.1.101,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+1002,TRUE,,,00-30-A7-00-00-02,192.168.1.102,255.255.255.0,192.168.1.1,,,,,,,,,,,,
+'@ | Set-Content $tmp
+
+        $serialMatch = Resolve-SelDesiredStateProvisionTarget -Serial "1001" -Mac "00-30-A7-00-00-99" -DesiredStatePath $tmp
+        $serialMatch.Success | Should Be $true
+        $serialMatch.MatchType | Should Be "serial"
+        $serialMatch.Row.DesiredIP | Should Be "192.168.1.101"
+
+        $macMatch = Resolve-SelDesiredStateProvisionTarget -Serial "9999" -Mac "00:30:A7:00:00:02" -DesiredStatePath $tmp
+        $macMatch.Success | Should Be $true
+        $macMatch.MatchType | Should Be "mac"
+        $macMatch.Row.DesiredIP | Should Be "192.168.1.102"
+    }
+
+    It "checks whether a local address exists on the target network" {
+        $result = Test-SelLocalIpv4OnTargetNetwork -TargetIp "192.168.1.101" -Mask "255.255.255.0" -LocalAddresses @("10.0.0.5", "192.168.1.20")
+        $result.Success | Should Be $true
+        $result.MatchingLocalIPs[0] | Should Be "192.168.1.20"
+    }
+
+    It "mass provisioning range mode assigns the next ip and records a mapping row" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = "192.168.1.2"
+                DefaultSubnetMask = "255.255.255.0"
+                TargetSubnetMask = "255.255.255.0"
+                TargetGateway = "192.168.1.1"
+                ACCPassword = "OTTER"
+                '2ACPassword' = "TAIL"
+            }
+        }
+        Mock Invoke-SelPingCheck -ModuleName SelTools { [pscustomobject]@{ HostIp = "192.168.1.2"; Success = $true } }
+        Mock Invoke-SelPlinkIdentityCapture -ModuleName SelTools {
+            [pscustomobject]@{
+                ID = "pre-id"
+                SER = "pre-sta"
+                ETH = "pre-eth"
+                Access = [pscustomobject]@{ Success = $true }
+            }
+        }
+        Mock ConvertFrom-SelIdOutput -ModuleName SelTools { [pscustomobject]@{} }
+        Mock ConvertFrom-SelStaOutput -ModuleName SelTools { [pscustomobject]@{ Serial = "3250985195"; FID = "FID" } }
+        Mock ConvertFrom-SelEthOutput -ModuleName SelTools { [pscustomobject]@{ MAC = "00-30-A7-42-2F-B2"; IP = "192.168.1.2"; Mask = "255.255.255.0"; Gateway = "192.168.1.1" } }
+        Mock Invoke-SelReIp -ModuleName SelTools {
+            [pscustomobject]@{
+                Action = "reip"
+                Status = "success"
+                Serial = "3250985195"
+                HostIp = "192.168.1.2"
+                ObservedIp = "192.168.1.100"
+                TargetIp = "192.168.1.100"
+                TargetMask = "255.255.255.0"
+                TargetGateway = "192.168.1.1"
+                ObservedMask = "255.255.255.0"
+                ObservedGateway = "192.168.1.1"
+            }
+        }
+        Mock Test-SelLocalIpv4OnTargetNetwork -ModuleName SelTools {
+            [pscustomobject]@{
+                Success = $true
+                Checked = $true
+                LocalIPs = @("192.168.1.10")
+                MatchingLocalIPs = @("192.168.1.10")
+            }
+        }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("", "n") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            if ($inputs.Count -gt 0) {
+                return $inputs.Dequeue()
+            }
+            return "n"
+        }
+
+        $result = Invoke-SelMassProvisioning -Mode "range" -HostIp "192.168.1.2" -StartIp "192.168.1.100" -EndIp "192.168.1.101" -Mask "255.255.255.0" -Gateway "192.168.1.1" -PassThru -ReadInput $readInput
+
+        $result.Action | Should Be "mass-reip"
+        $result.Mode | Should Be "range"
+        @($result.Results).Count | Should Be 1
+        $result.Results[0].NewIp | Should Be "192.168.1.100"
+        Assert-MockCalled Invoke-SelReIp -ModuleName SelTools -Times 1 -Exactly -ParameterFilter {
+            $HostIp -eq "192.168.1.2" -and $Ip -eq "192.168.1.100" -and $AutoConfirm
+        }
+    }
+
+    It "mass provisioning reports ping failure and can stop without retry" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = "192.168.1.2"
+                TargetSubnetMask = "255.255.255.0"
+                TargetGateway = "192.168.1.1"
+                ACCPassword = "OTTER"
+                '2ACPassword' = "TAIL"
+            }
+        }
+        Mock Invoke-SelPingCheck -ModuleName SelTools {
+            [pscustomobject]@{
+                HostIp = "192.168.1.2"
+                Success = $false
+                FailureReason = "DestinationHostUnreachable"
+                Output = "Reply from 192.168.1.200: Destination host unreachable."
+            }
+        }
+        Mock Show-SelMassProvisioningFailure -ModuleName SelTools { }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("", "n", "n") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            if ($inputs.Count -gt 0) { return $inputs.Dequeue() }
+            return "n"
+        }
+
+        $result = Invoke-SelMassProvisioning -Mode "interactive" -HostIp "192.168.1.2" -Mask "255.255.255.0" -Gateway "192.168.1.1" -PassThru -ReadInput $readInput
+
+        @($result.Results).Count | Should Be 0
+        @($result.SessionFailures).Count | Should Be 1
+        $result.FailureCount | Should Be 1
+        $result.SessionFailures[0].Note | Should Match "not reachable by ping"
+        Assert-MockCalled Show-SelMassProvisioningFailure -ModuleName SelTools -Times 1
+    }
+
+    It "mass provisioning reports telnet prompt timeout distinctly" {
+        Mock Get-SelDefaults -ModuleName SelTools {
+            [pscustomobject]@{
+                DefaultIP = "192.168.1.2"
+                TargetSubnetMask = "255.255.255.0"
+                TargetGateway = "192.168.1.1"
+                ACCPassword = "OTTER"
+                '2ACPassword' = "TAIL"
+            }
+        }
+        Mock Test-SelDesiredStateConflicts -ModuleName SelTools {
+            [pscustomobject]@{
+                IsValid = $true
+                Conflicts = @()
+                Rows = @()
+            }
+        }
+        Mock Invoke-SelPingCheck -ModuleName SelTools {
+            [pscustomobject]@{
+                HostIp = "192.168.1.2"
+                Success = $true
+                FailureReason = ""
+                Output = "Reply from 192.168.1.2: bytes=32 time<1ms TTL=64"
+            }
+        }
+        Mock Test-SelLocalIpv4OnTargetNetwork -ModuleName SelTools {
+            [pscustomobject]@{
+                Checked = $true
+                Success = $true
+                LocalIPs = @("192.168.1.50")
+            }
+        }
+        Mock Invoke-SelPlinkIdentityCapture -ModuleName SelTools { throw "Timed out waiting for pattern '(?m)^\s*=(>>|>)?\s*$' on host 192.168.1.2." }
+        Mock Show-SelMassProvisioningFailure -ModuleName SelTools { }
+
+        $inputs = New-Object 'System.Collections.Generic.Queue[string]'
+        @("n", "n") | ForEach-Object { $inputs.Enqueue($_) }
+        $readInput = {
+            param([string]$Prompt)
+            if ($inputs.Count -gt 0) { return $inputs.Dequeue() }
+            return "n"
+        }
+
+        $result = Invoke-SelMassProvisioning -Mode "desiredstate" -HostIp "192.168.1.2" -PassThru -ReadInput $readInput
+
+        @($result.Results).Count | Should Be 0
+        @($result.SessionFailures).Count | Should Be 1
+        $result.FailureCount | Should Be 1
+        $result.SessionFailures[0].Note | Should Match "did not present a usable SEL Telnet prompt"
+        Assert-MockCalled Show-SelMassProvisioningFailure -ModuleName SelTools -Times 1
     }
 }
 
@@ -391,7 +663,7 @@ Describe "ReIP capture command selection" {
         Mock Enter-SelReIpAccess -ModuleName SelTools { [pscustomobject]@{ Success = $true; AccessLevel = "2AC" } }
         Mock Stop-SelPlinkSession -ModuleName SelTools { }
 
-        $capture = Invoke-SelPlinkIdentityCapture -HostIp "192.168.1.2" -AccPassword "OTTER" -TwoAcPassword "TAIL" -IncludeSer
+        $capture = SelTools\Invoke-SelPlinkIdentityCapture -HostIp "192.168.1.2" -AccPassword "OTTER" -TwoAcPassword "TAIL" -IncludeSer
 
         ($global:sentLines -contains "STA") | Should Be $true
         ($global:sentLines -contains "SER") | Should Be $false
